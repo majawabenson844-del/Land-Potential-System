@@ -1,4 +1,4 @@
-# 🌍 Land Potential Prediction System (SVM + Boruta)
+# 🌍 Groundwater Potential Mapping Prediction System (SVM + Boruta)
 
 This is an **AI-powered decision support system** for predicting Groundwater potential areas (High vs Low) using a Support Vector Machine (SVM) model. The system is fully production-ready and deployed using **Streamlit** with a modern user interface
 
