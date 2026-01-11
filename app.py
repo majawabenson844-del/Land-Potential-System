@@ -7,7 +7,7 @@ import joblib
 # Page Config
 # ===============================
 st.set_page_config(
-    page_title="Benson Land System",
+    page_title="Benson's Groundwater Potential Mapping System",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
