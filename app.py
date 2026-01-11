@@ -123,7 +123,7 @@ page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature
 # ===============================
 if page == "Home":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.title("🌍 Land Potential Prediction System")
+    st.title("🌍 Groundwater Potential Mapping  Prediction System")
     st.write("""
     A **decision support system** built with:
 
@@ -134,7 +134,7 @@ if page == "Home":
 
     Designed for **real-world deployment**.
 
-              by BENSON T MAJAWA
+              By BENSON T MAJAWA
     """)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -178,9 +178,9 @@ elif page == "Predict":
             st.markdown("---")
 
             if pred == 1:
-                st.success("🌱 High Potential Land")
+                st.success("🌱 High Potential Area")
             else:
-                st.error("⚠️ Low Potential Land")
+                st.error("⚠️ Low Potential Area")
 
             col1, col2 = st.columns(2)
             col1.metric("High Potential Confidence", f"{probs[1]*100:.2f}%")
