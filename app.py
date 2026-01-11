@@ -143,7 +143,7 @@ if page == "Home":
 # ===============================
 elif page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.title("🔮 Predict Land Potential")
+    st.title("🔮 Predict Groundwater Potential")
 
     st.write("### Select values for the predictors:")
 
