@@ -115,7 +115,7 @@ apply_gold_black_theme()
 # ===============================
 # Sidebar
 # ===============================
-st.sidebar.title("🌍 Land Potential")
+st.sidebar.title("🌍 Groundwater Potential Mapping")
 page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature Guide", "About"])
 
 # ===============================
