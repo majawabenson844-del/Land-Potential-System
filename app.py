@@ -237,7 +237,9 @@ elif page == "About":
     This system was engineered for:
 
     • Real-world deployment  
-    • Decision support  
+    • Decision support 
+    
+    
  
 
     Built with reliability and scalability.
