@@ -166,6 +166,7 @@ elif page == "Predict":
         else:
             district = None  # If no valid province is selected
 
+   
     # Function to get user location
     def get_location():
         st.markdown("""
@@ -178,6 +179,10 @@ elif page == "Predict":
                     const locationInfo = lat + ", " + lon;
                     const hiddenInput = document.getElementById('location');
                     hiddenInput.value = locationInfo; // Set the input value
+                    
+                    // Open Google Maps at the current location
+                    const mapUrl = `https://www.google.com/maps/@${lat},${lon},15z`;
+                    document.getElementById('map-link').href = mapUrl;
                 });
             } else {
                 alert("Geolocation is not supported by this browser.");
@@ -187,13 +192,16 @@ elif page == "Predict":
         getLocation();
         </script>
         <input type="hidden" id="location" value="">
+        <a id="map-link" href="#" target="_blank">View Location on Google Maps</a>
         """, unsafe_allow_html=True)
 
     # Call location function
     get_location()
 
     # Input for user's location
-    location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input')
+    location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=True)
+
+    # Rest of your prediction logic...t')
 
     user_inputs = {}
 
