@@ -1,83 +1,283 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import joblib 
+
+# ===============================
+# Page Config
+# ===============================
+st.set_page_config(
+    page_title="Benson's Groundwater Potential Mapping System",
+    page_icon="🌍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# ===============================
+# Load Artifacts
+# ===============================
+model = joblib.load("svm_model.pkl")
+scaler = joblib.load("scaler.pkl")
+encoder = joblib.load("encoder.pkl")
+selected_features = joblib.load("selected_features.pkl")
+
+# ===============================
+# Load Dataset (for categories + full feature list)
+# ===============================
+data = pd.read_csv("augmented_data.csv")
+data.columns = [
+    'Decision',
+    'Soil.Texture',
+    'Soil.Colour',
+    'Geological.Features',
+    'Elevation',
+    'Natural.vegitation..tree..vigour',
+    'Natural.vegitation..tree..height',
+    'Drainage.Density'
+]
+
+full_features = [col for col in data.columns if col != "Decision"]
+
+# ===============================
+# Default values for hidden features
+# ===============================
+default_values = {col: data[col].mode()[0] for col in full_features}
+
+# ===============================
+# GOLD + BLACK PREMIUM THEME
+# ===============================
+def apply_gold_black_theme():
+    st.markdown("""
+    <style>
+    body, .stApp {
+        background-color: #0b0b0b;
+        color: #f5c77a;
+    }
+
+    .block-container {
+        padding: 2.5rem;
+    }
+
+    .card {
+        background: linear-gradient(145deg, #0f0f0f, #1a1a1a);
+        border-radius: 18px;
+        padding: 25px;
+        margin-bottom: 20px;
+        border: 1px solid rgba(245, 199, 122, 0.2);
+        box-shadow: 0 0 25px rgba(245, 199, 122, 0.15);
+    }
+
+    h1, h2, h3 {
+        color: #f5c77a !important;
+        font-weight: 800 !important;
+        letter-spacing: 1px;
+    }
+
+    label {
+        font-size: 20px !important;
+        font-weight: 800 !important;
+        color: #f5c77a !important;
+    }
+
+    .stSelectbox > div {
+        background-color: #121212 !important;
+        border: 1px solid #f5c77a !important;
+        border-radius: 10px;
+        color: white !important;
+    }
+
+    .stButton button {
+        background: linear-gradient(90deg, #f5c77a, #ffd98e);
+        color: black;
+        border-radius: 12px;
+        padding: 0.8rem 1.5rem;
+        font-size: 18px;
+        font-weight: 800;
+        border: none;
+        box-shadow: 0 0 15px rgba(245,199,122,0.4);
+        transition: 0.3s;
+    }
+
+    .stButton button:hover {
+        transform: scale(1.05);
+        box-shadow: 0 0 25px rgba(245,199,122,0.7);
+    }
+
+    .sidebar .sidebar-content {
+        background-color: #0f0f0f;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+apply_gold_black_theme()
+
+# ===============================
+# Sidebar
+# ===============================
+st.sidebar.title("🌍 Groundwater Potential Mapping")
+page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature Guide", "About"])
+
+# ===============================
+# HOME
+# ===============================
+if page == "Home":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.title("🌍 Groundwater Potential Mapping  Prediction System")
+    st.write("""
+    A **decision support system** built with:
+
+    • Boruta Feature Selection  
+    • Ordinal Encoding  
+    • Standard Scaling  
+    • Support Vector Machines 
+
+    Designed for **real-world deployment**.
+
+              By BENSON T MAJAWA
+    """)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ===============================
+# PREDICTION
+# ===============================
 elif page == "Predict":
-    try:
-        st.markdown("<div class='card'>", unsafe_allow_html=True)
-        st.title("🔮 Predict Groundwater Potential")
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.title("🔮 Predict Groundwater Potential")
 
-        st.write("### Select values for the predictors:")
+    st.write("### Select values for the predictors:")
 
-        # Country selection
-        country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
-
-        if country == "Zimbabwe":
-            # Province selection
-            province = st.selectbox("Select Province", ["Select Province", "Midlands Province", "Masvingo Province"])
-            
-            # Define districts based on province
-            districts = {
-                "Midlands Province": ["Gweru", "Kwekwe", "Shurugwi"],
-                "Masvingo Province": ["Masvingo", "Chiredzi", "Mwenezi"]
+    # Function to get user location
+    def get_location():
+        st.markdown("""
+        <script>
+        async function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const locationInfo = lat + ", " + lon;
+                    const hiddenInput = document.getElementById('location');
+                    hiddenInput.value = locationInfo; // Set the input value
+                });
+            } else {
+                alert("Geolocation is not supported by this browser.");
             }
-            
-            # Conditional district selection
-            if province in districts:
-                district = st.selectbox("Select District", ["Select District"] + districts[province])
+        }
+
+        getLocation();
+        </script>
+        <input type="hidden" id="location" value="">
+        """, unsafe_allow_html=True)
+
+    # Call location function
+    get_location()
+
+    # Input for user's location
+    location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input')
+
+    user_inputs = {}
+
+    for feature in selected_features:
+        options = sorted(data[feature].dropna().unique().tolist())
+        user_inputs[feature] = st.selectbox(f"🔸 {feature}", options)
+
+    if st.button("✨ Predict Potential"):
+        try:
+            # Build full feature vector
+            full_input = default_values.copy()
+            full_input.update(user_inputs)
+
+            # Add location if available
+            if location:
+                full_input['Location'] = location  # Make sure 'Location' is part of your model's features
+
+            input_df = pd.DataFrame([full_input])[full_features]
+
+            # Encode
+            encoded = encoder.transform(input_df)
+            encoded_df = pd.DataFrame(encoded, columns=full_features)
+
+            # Select Boruta features
+            selected_df = encoded_df[selected_features]
+
+            # Scale
+            scaled = scaler.transform(selected_df)
+
+            # Predict
+            pred = model.predict(scaled)[0]
+            probs = model.predict_proba(scaled)[0]
+
+            st.markdown("---")
+
+            if pred == 1:
+                st.success("🌱 High Potential Area")
             else:
-                district = None  # If no valid province is selected
-        else:
-            district = None  # No district selection without country
+                st.error("⚠️ Low Potential Area")
 
-        # Include input for user's location
-        location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input')
+            col1, col2 = st.columns(2)
+            col1.metric("High Potential Confidence", f"{probs[1]*100:.2f}%")
+            col2.metric("Low Potential Confidence", f"{probs[0]*100:.2f}%")
 
-        user_inputs = {}
+        except Exception as e:
+            st.error(f"System Error: {e}")
 
-        # Assuming selected_features is defined earlier in the code
-        for feature in selected_features:
-            options = sorted(data[feature].dropna().unique().tolist())
-            user_inputs[feature] = st.selectbox(f"🔸 {feature}", options)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-        if st.button("✨ Predict Potential"):
-            # Prediction logic here
-            try:
-                # Build the full feature vector
-                full_input = default_values.copy()
-                full_input.update(user_inputs)
+# ===============================
+# MODEL INFO
+# ===============================
+elif page == "Model Info":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.title("🧠 Model Information")
 
-                # Add location if available
-                if location:
-                    full_input['Location'] = location  # Ensure 'Location' is part of your model's features
+    st.write("""
+    **Model:** Support Vector Machine (RBF Kernel)  
+    **Feature Selection:** Boruta  
+    **Scaling:** StandardScaler  
+    **Encoding:** OrdinalEncoder  
+    **Deployment:** Streamlit Cloud Ready  
+    """)
 
-                input_df = pd.DataFrame([full_input])[full_features]
+    st.subheader("Selected Predictors:")
+    for f in selected_features:
+        st.write(f"• {f}")
 
-                # Encode
-                encoded = encoder.transform(input_df)
-                encoded_df = pd.DataFrame(encoded, columns=full_features)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-                # Select Boruta features
-                selected_df = encoded_df[selected_features]
+# ===============================
+# FEATURE GUIDE
+# ===============================
+elif page == "Feature Guide":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.title("📘 Feature Guide")
 
-                # Scale
-                scaled = scaler.transform(selected_df)
+    for col in full_features:
+        st.subheader(col)
+        st.write("Possible values:")
+        st.write(sorted(data[col].dropna().unique().tolist()))
 
-                # Predict
-                pred = model.predict(scaled)[0]
-                probs = model.predict_proba(scaled)[0]
+    st.markdown("</div>", unsafe_allow_html=True)
 
-                st.markdown("---")
+# ===============================
+# ABOUT
+# ===============================
+elif page == "About":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.title("ℹ️ About")
 
-                if pred == 1:
-                    st.success("🌱 High Potential Area")
-                else:
-                    st.error("⚠️ Low Potential Area")
+    st.write("""
+    This system was engineered for:
 
-                col1, col2 = st.columns(2)
-                col1.metric("High Potential Confidence", f"{probs[1] * 100:.2f}%")
-                col2.metric("Low Potential Confidence", f"{probs[0] * 100:.2f}%")
+    • Real-world deployment  
+    • Decision support 
+    
+    
+ 
 
-            except Exception as e:
-                st.error(f"Prediction Error: {e}")
+    Built with reliability and scalability.
 
-        st.markdown("</div>", unsafe_allow_html=True)
+             BY BENSON MAJAWA
+    """)
 
-    except Exception as e:
-        st.error(f"Error encountered: {e}")
+    st.markdown("</div>", unsafe_allow_html=True)
