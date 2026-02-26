@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib 
+import joblib
 
 # ===============================
 # Page Config
@@ -179,9 +179,9 @@ elif page == "Predict":
                     const hiddenInput = document.getElementById('location');
                     hiddenInput.value = locationInfo; // Set the input value
                     
-                    // Open Google Maps at the current location
-                    const mapUrl = `https://www.google.com/maps/@${lat},${lon},15z`;
-                    document.getElementById('map-link').href = mapUrl;
+                    // Display user location on the map
+                    const mapUrl = `https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${lat},${lon}&zoom=15`;
+                    document.getElementById('map').src = mapUrl;
                 });
             } else {
                 alert("Geolocation is not supported by this browser.");
@@ -191,7 +191,8 @@ elif page == "Predict":
         getLocation();
         </script>
         <input type="hidden" id="location" value="">
-        <a id="map-link" href="#" target="_blank">View Location on Google Maps</a>
+        <iframe id="map" src="https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=-18.97,29.87&zoom=6" 
+                width="100%" height="400" style="display:block;" frameborder="0" allowfullscreen></iframe>
         """, unsafe_allow_html=True)
 
     # Call location function
@@ -199,8 +200,6 @@ elif page == "Predict":
 
     # Input for user's location
     location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=True)
-
-    # Rest of your prediction logic...t')
 
     user_inputs = {}
 
@@ -270,6 +269,7 @@ elif page == "Model Info":
         st.write(f"• {f}")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
 # ===============================
 # FEATURE GUIDE
 # ===============================
