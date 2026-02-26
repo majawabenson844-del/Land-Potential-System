@@ -253,38 +253,18 @@ elif page == "Model Info":
     st.title("🧠 Model Information")
 
     st.write("""
-    **Model:** Support Vector Machine (SVM)  
-    **Kernel Used:** Radial Basis Function (RBF)  
-    **Feature Selection Method:** Boruta  
-    **Scaling Method:** StandardScaler  
-    **Encoding Method:** OrdinalEncoder  
+    **Model:** Support Vector Machine (RBF Kernel)  
+    **Feature Selection:** Boruta  
+    **Scaling:** StandardScaler  
+    **Encoding:** OrdinalEncoder  
     **Deployment:** Streamlit Cloud Ready  
     """)
 
-    st.subheader("Selected Features:")
-    if selected_features:
-        for feature in selected_features:
-            st.write(f"• {feature}")
-    else:
-        st.write("No features selected.")
-    
-    st.subheader("Model Performance Metrics:")
-    st.write("""
-    - **Accuracy:** 85%  
-    - **Precision:** 80%  
-    - **Recall:** 90%  
-    - **F1 Score:** 84%  
-    """)
-
-    st.subheader("Model Explanation:")
-    st.write("""
-    This model predicts groundwater potential areas based on various geospatial features. 
-    The SVM algorithm is chosen for its robustness in high-dimensional spaces. 
-    The model is trained and validated with a comprehensive dataset, ensuring high accuracy and generalization to unseen data.
-    """)
+    st.subheader("Selected Predictors:")
+    for f in selected_features:
+        st.write(f"• {f}")
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 # ===============================
 # FEATURE GUIDE
 # ===============================
