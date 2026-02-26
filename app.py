@@ -156,8 +156,8 @@ elif page == "Predict":
         
         # Define districts based on province
         districts = {
-            "Midlands Province": ["Gweru", "Kwekwe", "Shurugwi"],
-            "Masvingo Province": ["Masvingo", "Chiredzi", "Mwenezi"]
+            "Midlands Province": ["Chirumhanzu", "Gokwe North", "Gokwe South", "Gweru", "Kwekwe", "Mberengwa", "Shurugwi", "Zvishavane"],
+            "Masvingo Province": ["Bikita", "Chiredzi", "Chivi", "Gutu", "Masvingo", "Mwenezi", "Zaka"]
         }
         
         # Conditional district selection
