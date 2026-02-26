@@ -123,7 +123,7 @@ page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature
 # ===============================
 if page == "Home":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.title("🌍 Groundwater Potential Mapping  Prediction System")
+    st.title("🌍 Groundwater Potential Mapping Prediction System")
     st.write("""
     A **decision support system** built with:
 
@@ -146,6 +146,25 @@ elif page == "Predict":
     st.title("🔮 Predict Groundwater Potential")
 
     st.write("### Select values for the predictors:")
+
+    # Country selection
+    country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
+
+    if country == "Zimbabwe":
+        # Province selection
+        province = st.selectbox("Select Province", ["Select Province", "Midlands Province", "Masvingo Province"])
+        
+        # Define districts based on province
+        districts = {
+            "Midlands Province": ["Gweru", "Kwekwe", "Shurugwi"],
+            "Masvingo Province": ["Masvingo", "Chiredzi", "Mwenezi"]
+        }
+        
+        # Conditional district selection
+        if province in districts:
+            district = st.selectbox("Select District", ["Select District"] + districts[province])
+        else:
+            district = None  # If no valid province is selected
 
     # Function to get user location
     def get_location():
@@ -190,7 +209,7 @@ elif page == "Predict":
 
             # Add location if available
             if location:
-                full_input['Location'] = location  # Make sure 'Location' is part of your model's features
+                full_input['Location'] = location  # Ensure 'Location' is part of your model's features
 
             input_df = pd.DataFrame([full_input])[full_features]
 
@@ -272,9 +291,6 @@ elif page == "About":
     • Real-world deployment  
     • Decision support 
     
-    
- 
-
     Built with reliability and scalability.
 
              BY BENSON MAJAWA
