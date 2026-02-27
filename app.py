@@ -142,7 +142,7 @@ elif page == "Predict":
     get_location()
 
     # Input for user's location
-    location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=True)
+    location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=False)
 
     # User feature inputs
     user_inputs = {}
