@@ -145,7 +145,7 @@ elif page == "Predict":
     location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=False)
     
  # Button to show the map based on location
-    if st.button("Show My Location", key="map-button"):
+    if st.button("Current Location", key="map-button"):
         if location and location != "":
             lat, lon = map(float, location.split(","))
 
