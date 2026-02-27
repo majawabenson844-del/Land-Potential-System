@@ -143,14 +143,8 @@ elif page == "Predict":
 
     # Input for user's location
     location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=False)
-
-    # User feature inputs
-    user_inputs = {}
-    for feature in selected_features:
-        options = sorted(data[feature].dropna().unique().tolist())
-        user_inputs[feature] = st.selectbox(f"🔸 {feature}", options)
-
-    # Button to show the map based on location
+    
+ # Button to show the map based on location
     if st.button("Show My Location", key="map-button"):
         if location and location != "":
             lat, lon = map(float, location.split(","))
@@ -164,6 +158,13 @@ elif page == "Predict":
         else:
             st.error("Location not available. Please allow location access in your browser.")
 
+    # User feature inputs
+    user_inputs = {}
+    for feature in selected_features:
+        options = sorted(data[feature].dropna().unique().tolist())
+        user_inputs[feature] = st.selectbox(f"🔸 {feature}", options)
+
+   
     if st.button("✨ Predict Potential"):
         try:
             full_input = default_values.copy()
