@@ -85,6 +85,7 @@ if page == "Home":
               By BENSON T MAJAWA
     """)
     st.markdown("</div>", unsafe_allow_html=True)
+
 # ===============================
 # PREDICTION
 # ===============================
@@ -203,7 +204,6 @@ elif page == "Predict":
             st.error(f"System Error: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
-
 # ===============================
 # MODEL INFO, FEATURE GUIDE, ABOUT
 # ===============================
