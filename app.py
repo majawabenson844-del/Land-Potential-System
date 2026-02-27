@@ -85,7 +85,6 @@ if page == "Home":
               By BENSON T MAJAWA
     """)
     st.markdown("</div>", unsafe_allow_html=True)
-
 # ===============================
 # PREDICTION
 # ===============================
@@ -120,10 +119,11 @@ elif page == "Predict":
                 navigator.geolocation.getCurrentPosition(function(position) {
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
-                    const locationInfo = lat + ", " + lon;
+                    const locationInfo = lat + "," + lon;
                     const hiddenInput = document.getElementById('location_input');
-                    hiddenInput.value = locationInfo; 
-                    window.parent.document.getElementById("show-button").click(); // Trigger button click in Streamlit to show map
+                    hiddenInput.value = locationInfo;
+                    // Trigger map display upon successful location fetch
+                    document.getElementById('map-button').click();
                 }, function() {
                     alert("Unable to retrieve your location.");
                 });
@@ -148,10 +148,11 @@ elif page == "Predict":
         options = sorted(data[feature].dropna().unique().tolist())
         user_inputs[feature] = st.selectbox(f"🔸 {feature}", options)
 
-    if st.button("Show My Location", key="show-button"):
+    # Button to show the map based on location
+    if st.button("Show My Location", key="map-button"):
         if location and location != "":
             lat, lon = map(float, location.split(","))
-            
+
             # Create a Folium map centered on user location
             m = folium.Map(location=[lat, lon], zoom_start=15)
             folium.Marker(location=[lat, lon], popup="You are here!", icon=folium.Icon(color='blue')).add_to(m)
