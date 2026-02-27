@@ -114,24 +114,25 @@ elif page == "Predict":
     def get_location():
         st.markdown("""
         <script>
-        async function getLocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(function(position) {
-                    const lat = position.coords.latitude;
-                    const lon = position.coords.longitude;
-                    const locationInfo = lat + "," + lon;
-                    const hiddenInput = document.getElementById('location_input');
-                    hiddenInput.value = locationInfo;
-                    // Trigger map display upon successful location fetch
-                    document.getElementById('map-button').click();
-                }, function() {
-                    alert("Unable to retrieve your location.");
-                });
-            } else {
-                alert("Geolocation is not supported by this browser.");
+            async function getLocation() {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(function(position) {
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        const locationInfo = lat + "," + lon;
+                        const hiddenInput = document.getElementById('location_input');
+                        hiddenInput.value = locationInfo; 
+                        // Trigger Streamlit re-run to show map
+                        const mapButton = document.getElementById('map-button');
+                        if (mapButton) mapButton.click();
+                    }, function() {
+                        alert("Unable to retrieve your location. Please allow location access in your browser.");
+                    });
+                } else {
+                    alert("Geolocation is not supported by this browser.");
+                }
             }
-        }
-        getLocation();
+            getLocation();
         </script>
         <input type="hidden" id="location_input" value="">
         """, unsafe_allow_html=True)
@@ -159,6 +160,8 @@ elif page == "Predict":
 
             # Render the map in Streamlit
             folium_static(m)
+        else:
+            st.error("Location not available. Please allow location access in your browser.")
 
     if st.button("✨ Predict Potential"):
         try:
