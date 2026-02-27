@@ -7,7 +7,7 @@ import joblib
 # Page Config
 # ===============================
 st.set_page_config(
-    page_title="Benson's Groundwater Potential Mapping System",
+    page_title="Benson's GWP  Mapping Estimator",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -62,7 +62,7 @@ apply_gold_black_theme()
 # ===============================
 # Sidebar
 # ===============================
-st.sidebar.title("🌍 Groundwater Potential Mapping")
+st.sidebar.title("🌍 GWP  Mapping Estimator")
 page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature Guide", "About"])
 
 # ===============================
@@ -70,7 +70,7 @@ page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature
 # ===============================
 if page == "Home":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.title("🌍 Groundwater Potential Mapping Prediction System")
+    st.title("🌍 GWP  Mapping Estimator")
     st.write("""
     A **decision support system** built with:
 
