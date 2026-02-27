@@ -2,12 +2,14 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import folium
+from streamlit_folium import folium_static
 
 # ===============================
 # Page Config
 # ===============================
 st.set_page_config(
-    page_title="Benson's GWP  Mapping Estimator",
+    page_title="Benson's GWP Mapping Estimator",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -53,7 +55,6 @@ def apply_gold_black_theme():
         background-color: #0b0b0b;
         color: #f5c77a;
     }
-    /* Add your existing CSS styles here */
     </style>
     """, unsafe_allow_html=True)
 
@@ -62,7 +63,7 @@ apply_gold_black_theme()
 # ===============================
 # Sidebar
 # ===============================
-st.sidebar.title("🌍 GWP  Mapping Estimator")
+st.sidebar.title("🌍 GWP Mapping Estimator")
 page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature Guide", "About"])
 
 # ===============================
@@ -70,7 +71,7 @@ page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature
 # ===============================
 if page == "Home":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.title("🌍 GWP  Mapping Estimator")
+    st.title("🌍 GWP Mapping Estimator")
     st.write("""
     A **decision support system** built with:
 
@@ -108,19 +109,21 @@ elif page == "Predict":
         else:
             district = None  # If no valid province is selected
 
-    # Function to get user location without an API
+    # ===============================
+    # Function to get user location
+    # ===============================
     def get_location():
         st.markdown("""
         <script>
         async function getLocation() {
-            // Check if geolocation is available and supported
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(function(position) {
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
                     const locationInfo = lat + ", " + lon;
-                    const hiddenInput = document.getElementById('location');
-                    hiddenInput.value = locationInfo; // Set the input value
+                    const hiddenInput = document.getElementById('location_input');
+                    hiddenInput.value = locationInfo; 
+                    window.parent.document.getElementById("show-button").click(); // Trigger button click in Streamlit to show map
                 }, function() {
                     alert("Unable to retrieve your location.");
                 });
@@ -130,19 +133,31 @@ elif page == "Predict":
         }
         getLocation();
         </script>
-        <input type="hidden" id="location" value="">
+        <input type="hidden" id="location_input" value="">
         """, unsafe_allow_html=True)
 
+    # Get user location
     get_location()
 
     # Input for user's location
     location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=True)
 
+    # User feature inputs
     user_inputs = {}
-
     for feature in selected_features:
         options = sorted(data[feature].dropna().unique().tolist())
         user_inputs[feature] = st.selectbox(f"🔸 {feature}", options)
+
+    if st.button("Show My Location", key="show-button"):
+        if location and location != "":
+            lat, lon = map(float, location.split(","))
+            
+            # Create a Folium map centered on user location
+            m = folium.Map(location=[lat, lon], zoom_start=15)
+            folium.Marker(location=[lat, lon], popup="You are here!", icon=folium.Icon(color='blue')).add_to(m)
+
+            # Render the map in Streamlit
+            folium_static(m)
 
     if st.button("✨ Predict Potential"):
         try:
@@ -188,7 +203,14 @@ elif page == "Predict":
 # ===============================
 # MODEL INFO, FEATURE GUIDE, ABOUT
 # ===============================
-# The existing Model Info, Feature Guide, and About sections remain unchanged.
-# Add the code for those sections below.
+elif page == "Model Info":
+    # Your existing Model Info code goes here
+    pass
 
-# (Include the other existing sections here)
+elif page == "Feature Guide":
+    # Your existing Feature Guide code goes here
+    pass
+
+elif page == "About":
+    # Your existing About code goes here
+    pass
