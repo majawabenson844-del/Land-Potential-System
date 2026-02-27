@@ -5,3 +5,4 @@ scikit-learn
 joblib
 boruta
 folium
+streamlit-folium
