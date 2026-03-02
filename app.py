@@ -315,7 +315,6 @@ if page == "Predict":
             st.error(f"System Error: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
-# ===============================
 # MODEL INFO
 # ===============================
 elif page == "Model Info":
