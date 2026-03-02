@@ -87,7 +87,7 @@ if page == "Home":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
-# PREDICT (fast auto geolocation + manual fallback) — corrected for session_state safety
+# PREDICT (fast auto geolocation + manual fallback) — complete block
 # ===============================
 if page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -117,47 +117,91 @@ if page == "Predict":
 
     st.write("The app will try to fetch your location quickly. Allow location access when prompted, or enter coordinates manually below.")
 
-    # Inject JS to fetch a faster/coarse location and write to a hidden input that Streamlit can read.
-    # Options use enableHighAccuracy: false, maximumAge: 60000, timeout: 5000 for speed.
+    # -----------------------------
+    # Robust auto geolocation JS
+    # -----------------------------
     st.markdown(
         """
         <script>
-        async function writeFastLocation() {
-            const findInput = () => window.parent.document.querySelectorAll('input[id^="loc_input_fast"]');
-            const tryGetInput = (retries, delay) => new Promise((resolve, reject) => {
-                let attempts = 0;
-                const t = setInterval(() => {
-                    const el = findInput();
-                    if (el && el.length > 0) {
-                        clearInterval(t);
-                        resolve(el[0]);
-                    } else {
-                        attempts++;
-                        if (attempts >= retries) {
-                            clearInterval(t);
-                            reject('not-found');
+        function findStreamlitInput() {
+            // Try accessing parent document first (for typical Streamlit embed), fall back to local document
+            try {
+                const parentInputs = Array.from(window.parent.document.querySelectorAll('input'));
+                for (const inp of parentInputs) {
+                    const aria = inp.getAttribute && inp.getAttribute('aria-label');
+                    if ((inp.id && inp.id.includes('loc_input_fast')) || (aria && aria.includes('Hidden location (auto)'))) {
+                        return inp;
+                    }
+                }
+            } catch (e) {
+                console.warn('[geo] parent.document access blocked or not available:', e);
+            }
+            const inputsLocal = Array.from(document.querySelectorAll('input'));
+            for (const inp of inputsLocal) {
+                const aria = inp.getAttribute && inp.getAttribute('aria-label');
+                if ((inp.id && inp.id.includes('loc_input_fast')) || (aria && aria.includes('Hidden location (auto)'))) {
+                    return inp;
+                }
+            }
+            return null;
+        }
+
+        async function tryAutoLocate() {
+            console.log('[geo] tryAutoLocate running');
+            const inputEl = findStreamlitInput();
+            if (!navigator.geolocation) {
+                console.warn('[geo] geolocation not available');
+                return false;
+            }
+
+            return new Promise((resolve) => {
+                navigator.geolocation.getCurrentPosition(function(pos) {
+                    const val = pos.coords.latitude + ',' + pos.coords.longitude;
+                    console.log('[geo] got coords', val);
+
+                    if (inputEl) {
+                        try {
+                            inputEl.value = val;
+                            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+                            console.log('[geo] wrote coords to input element');
+                            resolve(true);
+                            return;
+                        } catch (e) {
+                            console.warn('[geo] writing to input failed', e);
                         }
                     }
-                }, delay);
-            });
 
-            try {
-                const inputEl = await tryGetInput(20, 100); // ~2s max to find input element
-                if (!navigator.geolocation) {
-                    console.warn("Geolocation not supported");
-                    return;
-                }
-                navigator.geolocation.getCurrentPosition((pos) => {
-                    inputEl.value = pos.coords.latitude + "," + pos.coords.longitude;
-                    inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-                }, (err) => {
-                    console.warn("Geolocation error:", err);
-                }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 5000 });
-            } catch (e) {
-                console.warn("Could not find Streamlit input element for geolocation:", e);
-            }
+                    // Fallbacks
+                    try {
+                        localStorage.setItem('geo_debug_coords', val);
+                        console.log('[geo] wrote coords to localStorage');
+                    } catch (e) {
+                        console.warn('[geo] localStorage write failed', e);
+                    }
+
+                    try {
+                        window.parent.postMessage({ type: 'STREAMLIT_GEOCODE', value: val }, '*');
+                        console.log('[geo] posted message to parent');
+                    } catch (e) {
+                        console.warn('[geo] postMessage failed', e);
+                    }
+
+                    resolve(true);
+                }, function(err) {
+                    console.warn('[geo] geolocation error', err);
+                    resolve(false);
+                }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 7000 });
+            });
         }
-        setTimeout(writeFastLocation, 250);
+
+        // Run soon after load, and expose retry function
+        setTimeout(() => {
+            tryAutoLocate().then(ok => {
+                if (!ok) console.warn('[geo] initial auto-locate failed or was denied');
+            });
+            window.tryAutoLocateFromStreamlit = tryAutoLocate;
+        }, 300);
         </script>
         """,
         unsafe_allow_html=True,
@@ -165,6 +209,37 @@ if page == "Predict":
 
     # Hidden input that JS will populate (stable key)
     location = st.text_input("Hidden location (auto)", value=st.session_state.get("loc_input_fast", ""), placeholder="Waiting for browser location...", key="loc_input_fast")
+
+    # Debug expander
+    with st.expander("Geolocation debug info (open if not detecting)"):
+        st.write("Session state loc_input_fast:", st.session_state.get("loc_input_fast", ""))
+        st.write("If nothing appears here after allowing location, open your browser console and look for lines starting with [geo].")
+        st.write("You can also run in the console: localStorage.getItem('geo_debug_coords') to see fallback coords if set.")
+
+    # Visible retry button that triggers the JS function exposed on the page
+    def trigger_js_retry():
+        # No Python action required; re-rendering triggers the small JS below to call the exposed function
+        pass
+
+    st.button("Try auto-detect again", on_click=trigger_js_retry)
+
+    # This JS calls the window.tryAutoLocateFromStreamlit function if present (runs after the button causes a rerun)
+    st.markdown(
+        """
+        <script>
+        try {
+            if (window.tryAutoLocateFromStreamlit && typeof window.tryAutoLocateFromStreamlit === 'function') {
+                window.tryAutoLocateFromStreamlit().then(ok => {
+                    if (!ok) console.warn('[geo] retry auto-locate failed or was denied');
+                });
+            }
+        } catch (e) {
+            console.warn('[geo] retry call error', e);
+        }
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # Show quick status while waiting
     status = st.empty()
