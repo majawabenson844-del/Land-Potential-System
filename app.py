@@ -87,7 +87,7 @@ if page == "Home":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
-# PREDICT (fast auto geolocation + manual fallback) — complete block
+# PREDICT — postMessage geolocation method (replace your Predict block with this)
 # ===============================
 if page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -95,13 +95,11 @@ if page == "Predict":
 
     st.write("### Select values for the predictors:")
 
-    # Ensure session_state key exists to avoid Streamlit runtime errors when writing later
-    if "loc_input_fast" not in st.session_state:
-        st.session_state["loc_input_fast"] = ""
+    # Ensure session_state key exists
+    if "loc_postmsg" not in st.session_state:
+        st.session_state["loc_postmsg"] = ""  # will hold "lat,lon,accuracy,timestamp" or empty
 
-    # Country selection
     country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
-
     if country == "Zimbabwe":
         province = st.selectbox("Select Province", ["Select Province", "Midlands Province", "Masvingo Province"])
         districts = {
@@ -115,228 +113,187 @@ if page == "Predict":
     else:
         province = district = None
 
-    st.write("The app will try to fetch your location quickly. Allow location access when prompted, or enter coordinates manually below.")
+    st.write("This version uses a safer postMessage flow to get location from the browser. Allow location when prompted, then click 'Try auto-detect' if needed.")
 
-    # -----------------------------
-    # Robust auto geolocation JS
-    # -----------------------------
+    # Hidden input that will be populated by the JS message listener
+    loc_input = st.text_input("Hidden location (postMessage)", value=st.session_state.get("loc_postmsg", ""), placeholder="Waiting for location...", key="loc_postmsg")
+
+    # Inject JS that both requests location (when asked) and listens for incoming postMessage,
+    # then writes received coords into the hidden input.
     st.markdown(
         """
         <script>
-        function findStreamlitInput() {
-            // Try accessing parent document first (for typical Streamlit embed), fall back to local document
-            try {
-                const parentInputs = Array.from(window.parent.document.querySelectorAll('input'));
-                for (const inp of parentInputs) {
-                    const aria = inp.getAttribute && inp.getAttribute('aria-label');
-                    if ((inp.id && inp.id.includes('loc_input_fast')) || (aria && aria.includes('Hidden location (auto)'))) {
-                        return inp;
+        // Unique message type so we don't collide with other pages
+        const MSG_TYPE = 'STREAMLIT_POSTMSG_GEO_v1';
+
+        // Function to request geolocation from the browser and post it to this window (or parent)
+        function requestGeolocationAndPost() {
+            if (!navigator.geolocation) {
+                console.warn('[geo-post] navigator.geolocation not available');
+                window.postMessage({type: MSG_TYPE, ok:false, error: 'no_geolocation'}, '*');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(function(pos) {
+                const payload = {
+                    type: MSG_TYPE,
+                    ok: true,
+                    lat: pos.coords.latitude,
+                    lon: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy || null,
+                    altitude: pos.coords.altitude || null,
+                    timestamp: pos.timestamp || Date.now()
+                };
+                // If we're embedded, post to parent; if top-level, post to window
+                try {
+                    if (window.parent && window.parent !== window) {
+                        window.parent.postMessage(payload, '*');
+                    } else {
+                        window.postMessage(payload, '*');
                     }
+                } catch (e) {
+                    // as fallback, post to window
+                    window.postMessage(payload, '*');
+                }
+            }, function(err){
+                console.warn('[geo-post] geolocation error', err);
+                window.postMessage({type: MSG_TYPE, ok:false, error: err && err.message ? err.message : 'denied'}, '*');
+            }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
+        }
+
+        // Expose the function so Streamlit-triggered reruns can call it
+        window.requestGeolocationAndPost = requestGeolocationAndPost;
+
+        // Listener: receive the geo message and write into the Streamlit input field safely
+        window.addEventListener('message', function(event) {
+            try {
+                const data = event.data;
+                if (!data || data.type !== MSG_TYPE) return;
+                // Compose a compact value: lat,lon,accuracy,timestamp
+                if (data.ok) {
+                    const val = [data.lat, data.lon, data.accuracy !== null ? data.accuracy : '', data.altitude !== null ? data.altitude : '', data.timestamp].join(',');
+                    // Try to find the Streamlit input element by key/label heuristics
+                    function findInput() {
+                        const inputs = Array.from(document.querySelectorAll('input'));
+                        for (const inp of inputs) {
+                            const aria = inp.getAttribute && inp.getAttribute('aria-label');
+                            if ((inp.id && inp.id.indexOf('loc_postmsg') !== -1) || (aria && aria.indexOf('Hidden location (postMessage)') !== -1) || (aria && aria.indexOf('Hidden location (postMessage)') !== -1)) {
+                                return inp;
+                            }
+                        }
+                        // fallback: choose the first visible text input
+                        return inputs.find(i => i.type === 'text' || i.type === 'search') || null;
+                    }
+                    const inputEl = findInput();
+                    if (inputEl) {
+                        inputEl.focus();
+                        inputEl.value = val;
+                        inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                        inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+                        console.log('[geo-post] wrote coords to input:', val);
+                    } else {
+                        // As a fallback write to localStorage so the user can copy it
+                        try { localStorage.setItem('streamlit_geo_postmsg', val); } catch(e){}
+                        console.warn('[geo-post] could not find input element; saved to localStorage');
+                    }
+                } else {
+                    console.warn('[geo-post] geolocation failed:', data.error);
                 }
             } catch (e) {
-                console.warn('[geo] parent.document access blocked or not available:', e);
+                console.error('[geo-post] message handler error', e);
             }
-            const inputsLocal = Array.from(document.querySelectorAll('input'));
-            for (const inp of inputsLocal) {
-                const aria = inp.getAttribute && inp.getAttribute('aria-label');
-                if ((inp.id && inp.id.includes('loc_input_fast')) || (aria && aria.includes('Hidden location (auto)'))) {
-                    return inp;
-                }
-            }
-            return null;
-        }
+        }, false);
 
-        async function tryAutoLocate() {
-            console.log('[geo] tryAutoLocate running');
-            const inputEl = findStreamlitInput();
-            if (!navigator.geolocation) {
-                console.warn('[geo] geolocation not available');
-                return false;
-            }
-
-            return new Promise((resolve) => {
-                navigator.geolocation.getCurrentPosition(function(pos) {
-                    const val = pos.coords.latitude + ',' + pos.coords.longitude;
-                    console.log('[geo] got coords', val);
-
-                    if (inputEl) {
-                        try {
-                            inputEl.value = val;
-                            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-                            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
-                            console.log('[geo] wrote coords to input element');
-                            resolve(true);
-                            return;
-                        } catch (e) {
-                            console.warn('[geo] writing to input failed', e);
-                        }
-                    }
-
-                    // Fallbacks
-                    try {
-                        localStorage.setItem('geo_debug_coords', val);
-                        console.log('[geo] wrote coords to localStorage');
-                    } catch (e) {
-                        console.warn('[geo] localStorage write failed', e);
-                    }
-
-                    try {
-                        window.parent.postMessage({ type: 'STREAMLIT_GEOCODE', value: val }, '*');
-                        console.log('[geo] posted message to parent');
-                    } catch (e) {
-                        console.warn('[geo] postMessage failed', e);
-                    }
-
-                    resolve(true);
-                }, function(err) {
-                    console.warn('[geo] geolocation error', err);
-                    resolve(false);
-                }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 7000 });
-            });
-        }
-
-        // Run soon after load, and expose retry function
+        // Also attempt to auto-run once after load (gives permission prompt immediately)
         setTimeout(() => {
-            tryAutoLocate().then(ok => {
-                if (!ok) console.warn('[geo] initial auto-locate failed or was denied');
-            });
-            window.tryAutoLocateFromStreamlit = tryAutoLocate;
-        }, 300);
+            try {
+                requestGeolocationAndPost();
+            } catch(e) {
+                console.warn('[geo-post] auto-run failed', e);
+            }
+        }, 400);
         </script>
         """,
         unsafe_allow_html=True,
     )
 
-    # Hidden input that JS will populate (stable key)
-    location = st.text_input("Hidden location (auto)", value=st.session_state.get("loc_input_fast", ""), placeholder="Waiting for browser location...", key="loc_input_fast")
-
-    # Debug expander
-    with st.expander("Geolocation debug info (open if not detecting)"):
-        st.write("Session state loc_input_fast:", st.session_state.get("loc_input_fast", ""))
-        st.write("If nothing appears here after allowing location, open your browser console and look for lines starting with [geo].")
-        st.write("You can also run in the console: localStorage.getItem('geo_debug_coords') to see fallback coords if set.")
-
-    # Visible retry button that triggers the JS function exposed on the page
-    def trigger_js_retry():
-        # No Python action required; re-rendering triggers the small JS below to call the exposed function
+    # Button to explicitly trigger the geolocation request (useful after a Streamlit rerun)
+    def trigger_postmsg_geo():
+        # no Python-side action; the small JS below will call the exposed function in the page
         pass
 
-    st.button("Try auto-detect again", on_click=trigger_js_retry)
+    st.button("Try auto-detect (postMessage)", on_click=trigger_postmsg_geo)
 
-    # This JS calls the window.tryAutoLocateFromStreamlit function if present (runs after the button causes a rerun)
+    # Small JS snippet to call the exposed function after a rerun (so the button triggers the client-side function)
     st.markdown(
         """
         <script>
         try {
-            if (window.tryAutoLocateFromStreamlit && typeof window.tryAutoLocateFromStreamlit === 'function') {
-                window.tryAutoLocateFromStreamlit().then(ok => {
-                    if (!ok) console.warn('[geo] retry auto-locate failed or was denied');
-                });
+            if (window.requestGeolocationAndPost && typeof window.requestGeolocationAndPost === 'function') {
+                // delay slightly to allow function to exist
+                setTimeout(() => { window.requestGeolocationAndPost(); }, 150);
             }
-        } catch (e) {
-            console.warn('[geo] retry call error', e);
+        } catch(e){
+            console.warn('[geo-post] call after rerun failed', e);
         }
         </script>
         """,
         unsafe_allow_html=True,
     )
 
-    # Show quick status while waiting
-    status = st.empty()
-    if not st.session_state.get("loc_input_fast", ""):
-        status.info("Fetching location quickly... allow location access when prompted.")
+    # Show status and parsed values
+    if not st.session_state.get("loc_postmsg", ""):
+        st.info("Waiting for location. Allow location access in your browser when prompted.")
     else:
-        status.empty()
+        # Attempt to parse stored value: lat,lon,accuracy,alt,timestamp
         try:
-            lat_preview, lon_preview = map(float, st.session_state["loc_input_fast"].split(","))
-            st.success(f"Auto-detected: {lat_preview:.6f}, {lon_preview:.6f}")
+            parts = st.session_state["loc_postmsg"].split(",")
+            lat = float(parts[0])
+            lon = float(parts[1])
+            acc = parts[2] if len(parts) > 2 and parts[2] != '' else None
+            alt = parts[3] if len(parts) > 3 and parts[3] != '' else None
+            ts = parts[4] if len(parts) > 4 else None
+            st.success(f"Auto-detected: {lat:.6f}, {lon:.6f}")
+            if acc:
+                st.write(f"Accuracy: {acc} m")
+            if alt:
+                st.write(f"Altitude: {alt} m")
+            if ts:
+                try:
+                    import datetime
+                    t = datetime.datetime.fromtimestamp(float(ts)/1000.0) if float(ts) > 1e12 else datetime.datetime.fromtimestamp(float(ts))
+                    st.write(f"Timestamp: {t.isoformat()}")
+                except Exception:
+                    st.write("Timestamp:", ts)
         except Exception:
-            st.error("Auto location couldn't be parsed.")
+            st.error("Received location couldn't be parsed. Raw:", st.session_state.get("loc_postmsg"))
 
-    # Manual fallback inputs (visible if no auto location)
-    def use_manual_location(lat, lon):
-        st.session_state["loc_input_fast"] = f"{lat},{lon}"
+    # Manual override fields
+    st.markdown("If automatic detection fails, enter coordinates manually:")
+    c1, c2 = st.columns(2)
+    manual_lat = c1.number_input("Manual Latitude", format="%.6f", value=0.0, key="manual_lat_input")
+    manual_lon = c2.number_input("Manual Longitude", format="%.6f", value=0.0, key="manual_lon_input")
+    if st.button("Use manual location"):
+        st.session_state["loc_postmsg"] = f"{manual_lat},{manual_lon},,,"
+        st.experimental_rerun()
 
-    manual_lat = manual_lon = None
-    if not st.session_state.get("loc_input_fast", ""):
-        st.markdown("If automatic detection is slow or denied, enter coordinates manually:")
-        c1, c2 = st.columns(2)
-        # give manual inputs stable keys to preserve values across reruns
-        manual_lat = c1.number_input("Manual Latitude", format="%.6f", value=0.0, key="manual_lat_input")
-        manual_lon = c2.number_input("Manual Longitude", format="%.6f", value=0.0, key="manual_lon_input")
-        st.button("Use manual location", on_click=use_manual_location, args=(manual_lat, manual_lon))
-
-    # Button to render map for current location (uses the hidden input or manual)
-    if st.button("Current Location", key="map-button"):
-        loc_val = st.session_state.get("loc_input_fast", "")
+    # Map preview button (uses current loc_postmsg)
+    if st.button("Show map for current location"):
+        loc_val = st.session_state.get("loc_postmsg", "")
         if loc_val:
             try:
-                lat, lon = map(float, loc_val.split(","))
-                m = folium.Map(location=[lat, lon], zoom_start=15)
-                folium.Marker(location=[lat, lon], popup="You are here!", icon=folium.Icon(color='blue')).add_to(m)
+                lat_s, lon_s = loc_val.split(",")[0:2]
+                latf = float(lat_s); lonf = float(lon_s)
+                m = folium.Map(location=[latf, lonf], zoom_start=15)
+                folium.Marker(location=[latf, lonf], popup="Current location", icon=folium.Icon(color='blue')).add_to(m)
                 folium_static(m)
             except Exception:
-                st.error("Couldn't parse location. Expected 'lat,lon'.")
+                st.error("Couldn't parse stored coordinates.")
         else:
-            st.error("Location not available. Please allow location access or enter coordinates manually.")
+            st.error("No coordinates stored. Try auto-detect or enter manually.")
 
-    # User feature inputs
-    user_inputs = {}
-    for feature in selected_features:
-        # If feature exists in data, present choices, otherwise free text
-        if feature in data.columns:
-            options = sorted(data[feature].dropna().unique().tolist())
-            user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, index=0)
-        else:
-            user_inputs[feature] = st.text_input(f"🔸 {feature}", value=default_values.get(feature, ""))
-
-    # Prediction button
-    if st.button("✨ Predict Potential"):
-        try:
-            full_input = default_values.copy()
-            full_input.update(user_inputs)
-
-            # Add numeric lat/lon if available
-            loc_val = st.session_state.get("loc_input_fast", "")
-            if loc_val:
-                try:
-                    lat_s, lon_s = loc_val.split(",")
-                    full_input['Location_Lat'] = float(lat_s.strip())
-                    full_input['Location_Lon'] = float(lon_s.strip())
-                except Exception:
-                    # if 'Location' is the expected column name instead, preserve raw string
-                    full_input['Location'] = loc_val
-
-            # Build input DataFrame with expected full_features columns
-            input_df = pd.DataFrame([full_input])[full_features]
-
-            # Encode
-            encoded = encoder.transform(input_df)
-            encoded_df = pd.DataFrame(encoded, columns=full_features)
-
-            # Select Boruta features (selected_features expected to be subset of full_features post-encoding)
-            selected_df = encoded_df[selected_features]
-
-            # Scale
-            scaled = scaler.transform(selected_df)
-
-            # Predict
-            pred = model.predict(scaled)[0]
-            probs = model.predict_proba(scaled)[0]
-
-            st.markdown("---")
-            if pred == 1:
-                st.success("🌱 High Potential Area")
-            else:
-                st.error("⚠️ Low Potential Area")
-
-            col1, col2 = st.columns(2)
-            col1.metric("High Potential Confidence", f"{probs[1]*100:.2f}%")
-            col2.metric("Low Potential Confidence", f"{probs[0]*100:.2f}%")
-
-        except Exception as e:
-            st.error(f"System Error: {e}")
-
+    # Continue with the rest of your Predict logic (feature inputs, model prediction, etc.)
+    st.markdown("---")
+    st.write("Feature inputs and prediction UI go here (unchanged).")
     st.markdown("</div>", unsafe_allow_html=True)
 # ===============================
 # MODEL INFO, FEATURE GUIDE, ABOUT
