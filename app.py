@@ -139,7 +139,7 @@ if page == "Home":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
-# PREDICT (fast auto geolocation + manual fallback) — corrected for session_state safety
+# PREDICTION (fast auto geolocation + manual fallback)
 # ===============================
 if page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -147,13 +147,9 @@ if page == "Predict":
 
     st.write("### Select values for the predictors:")
 
-    # Ensure session_state key exists to avoid Streamlit runtime errors when writing later
-    if "loc_input_fast" not in st.session_state:
-        st.session_state["loc_input_fast"] = ""
-
-    # Country selection
+    # Country, province, district selection (kept)
     country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
-
+    province = district = None
     if country == "Zimbabwe":
         province = st.selectbox("Select Province", ["Select Province", "Midlands Province", "Masvingo Province"])
         districts = {
@@ -162,32 +158,28 @@ if page == "Predict":
         }
         if province in districts:
             district = st.selectbox("Select District", ["Select District"] + districts[province])
-        else:
-            district = None
-    else:
-        province = district = None
 
-    st.write("The app will try to fetch your location quickly. Allow location access when prompted, or enter coordinates manually below.")
+    st.write("The app will attempt to auto-detect your location quickly (browser will ask for permission). If it takes too long you can enter coordinates manually.")
 
-    # Inject JS to fetch a faster/coarse location and write to a hidden input that Streamlit can read.
-    # Options use enableHighAccuracy: false, maximumAge: 60000, timeout: 5000 for speed.
+    # Inject JS that automatically gets geolocation on page load and writes to the hidden input.
+    # Faster options: enableHighAccuracy: false, maximumAge: 60000, timeout: 5000
     st.markdown(
         """
         <script>
-        async function writeFastLocation() {
-            const findInput = () => window.parent.document.querySelectorAll('input[id^="loc_input_fast"]');
+        async function writeLocationToStreamlitQuick() {
+            const findInput = () => window.parent.document.querySelectorAll('input[id^="fast_location_input"]');
             const tryGetInput = (retries, delay) => new Promise((resolve, reject) => {
                 let attempts = 0;
-                const t = setInterval(() => {
+                const timer = setInterval(() => {
                     const el = findInput();
                     if (el && el.length > 0) {
-                        clearInterval(t);
+                        clearInterval(timer);
                         resolve(el[0]);
                     } else {
                         attempts++;
                         if (attempts >= retries) {
-                            clearInterval(t);
-                            reject('not-found');
+                            clearInterval(timer);
+                            reject("input-not-found");
                         }
                     }
                 }, delay);
@@ -209,95 +201,92 @@ if page == "Predict":
                 console.warn("Could not find Streamlit input element for geolocation:", e);
             }
         }
-        setTimeout(writeFastLocation, 250);
+        // Start after a short delay so the Streamlit DOM is ready
+        setTimeout(writeLocationToStreamlitQuick, 250);
         </script>
         """,
         unsafe_allow_html=True,
     )
 
-    # Hidden input that JS will populate (stable key)
-    location = st.text_input("Hidden location (auto)", value=st.session_state.get("loc_input_fast", ""), placeholder="Waiting for browser location...", key="loc_input_fast")
+    # Hidden text input that JS will populate automatically (stable key)
+    location = st.text_input("auto_location_fast", value="", placeholder="Waiting for browser to provide location...", key="fast_location_input")
 
-    # Show quick status while waiting
-    status = st.empty()
-    if not st.session_state.get("loc_input_fast", ""):
-        status.info("Fetching location quickly... allow location access when prompted.")
+    # Show status while waiting for automatic location
+    if not location:
+        status_placeholder = st.empty()
+        status_placeholder.info("Fetching location quickly... allow location access when prompted.")
     else:
-        status.empty()
-        try:
-            lat_preview, lon_preview = map(float, st.session_state["loc_input_fast"].split(","))
-            st.success(f"Auto-detected: {lat_preview:.6f}, {lon_preview:.6f}")
-        except Exception:
-            st.error("Auto location couldn't be parsed.")
+        status_placeholder = None
 
-    # Manual fallback inputs (visible if no auto location)
-    def use_manual_location(lat, lon):
-        st.session_state["loc_input_fast"] = f"{lat},{lon}"
-
+    # Manual fallback after a short delay: show manual lat/lon inputs if no auto location
+    # We'll show fallback UI immediately in code but hide instructions until a timer; use JS to set a small flag is complicated,
+    # so use a simple approach: if location is empty, display manual inputs below so user can enter coordinates if desired.
     manual_lat = manual_lon = None
-    if not st.session_state.get("loc_input_fast", ""):
-        st.markdown("If automatic detection is slow or denied, enter coordinates manually:")
-        c1, c2 = st.columns(2)
-        # give manual inputs stable keys to preserve values across reruns
-        manual_lat = c1.number_input("Manual Latitude", format="%.6f", value=0.0, key="manual_lat_input")
-        manual_lon = c2.number_input("Manual Longitude", format="%.6f", value=0.0, key="manual_lon_input")
-        st.button("Use manual location", on_click=use_manual_location, args=(manual_lat, manual_lon))
+    if not location:
+        st.markdown("If automatic detection is slow or you denied permission, enter coordinates manually:")
+        col_a, col_b = st.columns(2)
+        manual_lat = col_a.number_input("Manual Latitude", format="%.6f", value=0.0)
+        manual_lon = col_b.number_input("Manual Longitude", format="%.6f", value=0.0)
+        if st.button("Use manual location"):
+            # set the hidden input in session_state so downstream code sees it
+            st.session_state["fast_location_input"] = f"{manual_lat},{manual_lon}"
+            # update local variable so map/prediction block runs in same interaction
+            location = st.session_state.get("fast_location_input", "")
 
-    # Button to render map for current location (uses the hidden input or manual)
-    if st.button("Current Location", key="map-button"):
-        loc_val = st.session_state.get("loc_input_fast", "")
-        if loc_val:
-            try:
-                lat, lon = map(float, loc_val.split(","))
-                m = folium.Map(location=[lat, lon], zoom_start=15)
-                folium.Marker(location=[lat, lon], popup="You are here!", icon=folium.Icon(color='blue')).add_to(m)
-                folium_static(m)
-            except Exception:
-                st.error("Couldn't parse location. Expected 'lat,lon'.")
-        else:
-            st.error("Location not available. Please allow location access or enter coordinates manually.")
+    # If location was auto-filled (or now set from manual), show map
+    if location:
+        try:
+            lat_str, lon_str = location.split(",")
+            lat, lon = float(lat_str.strip()), float(lon_str.strip())
 
-    # User feature inputs
+            m = folium.Map(location=[lat, lon], zoom_start=14)
+            folium.Marker(location=[lat, lon], popup="Detected location", icon=folium.Icon(color="blue")).add_to(m)
+            folium_static(m)
+
+            st.success(f"Location: {lat:.6f}, {lon:.6f}")
+
+            # Clear status message if shown
+            if status_placeholder:
+                status_placeholder.empty()
+
+        except Exception:
+            st.error("Couldn't parse location. Expected format 'lat,lon'.")
+
+    # User feature inputs (uses selected_features list you loaded)
     user_inputs = {}
     for feature in selected_features:
-        # If feature exists in data, present choices, otherwise free text
         if feature in data.columns:
             options = sorted(data[feature].dropna().unique().tolist())
             user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, index=0)
         else:
             user_inputs[feature] = st.text_input(f"🔸 {feature}", value=default_values.get(feature, ""))
 
-    # Prediction button
     if st.button("✨ Predict Potential"):
         try:
+            # Build input dict using default values and user selections
             full_input = default_values.copy()
             full_input.update(user_inputs)
 
-            # Add numeric lat/lon if available
-            loc_val = st.session_state.get("loc_input_fast", "")
+            # Add numeric lat/lon if available in session_state or location var
+            loc_val = st.session_state.get("fast_location_input", location)
             if loc_val:
                 try:
-                    lat_s, lon_s = loc_val.split(",")
-                    full_input['Location_Lat'] = float(lat_s.strip())
-                    full_input['Location_Lon'] = float(lon_s.strip())
+                    lat_str, lon_str = loc_val.split(",")
+                    full_input['Location_Lat'] = float(lat_str.strip())
+                    full_input['Location_Lon'] = float(lon_str.strip())
                 except Exception:
-                    # if 'Location' is the expected column name instead, preserve raw string
-                    full_input['Location'] = loc_val
+                    pass
 
-            # Build input DataFrame with expected full_features columns
-            input_df = pd.DataFrame([full_input])[full_features]
+            # Build DataFrame for model
+            input_df = pd.DataFrame([full_input])
 
-            # Encode
-            encoded = encoder.transform(input_df)
-            encoded_df = pd.DataFrame(encoded, columns=full_features)
+            # Ensure we pass correct columns to encoder
+            encoded = encoder.transform(input_df[selected_features])
+            encoded_df = pd.DataFrame(encoded, columns=selected_features)
 
-            # Select Boruta features (selected_features expected to be subset of full_features post-encoding)
             selected_df = encoded_df[selected_features]
-
-            # Scale
             scaled = scaler.transform(selected_df)
 
-            # Predict
             pred = model.predict(scaled)[0]
             probs = model.predict_proba(scaled)[0]
 
