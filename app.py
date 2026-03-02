@@ -87,13 +87,17 @@ if page == "Home":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
-# PREDICT (fast auto geolocation + manual fallback)
+# PREDICT (fast auto geolocation + manual fallback) — corrected for session_state safety
 # ===============================
 if page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.title("🔮 Predict Groundwater Potential")
 
     st.write("### Select values for the predictors:")
+
+    # Ensure session_state key exists to avoid Streamlit runtime errors when writing later
+    if "loc_input_fast" not in st.session_state:
+        st.session_state["loc_input_fast"] = ""
 
     # Country selection
     country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
@@ -160,34 +164,36 @@ if page == "Predict":
     )
 
     # Hidden input that JS will populate (stable key)
-    location = st.text_input("Hidden location (auto)", value="", placeholder="Waiting for browser location...", key="loc_input_fast")
+    location = st.text_input("Hidden location (auto)", value=st.session_state.get("loc_input_fast", ""), placeholder="Waiting for browser location...", key="loc_input_fast")
 
     # Show quick status while waiting
     status = st.empty()
-    if not location:
+    if not st.session_state.get("loc_input_fast", ""):
         status.info("Fetching location quickly... allow location access when prompted.")
     else:
         status.empty()
         try:
-            lat_preview, lon_preview = map(float, location.split(","))
+            lat_preview, lon_preview = map(float, st.session_state["loc_input_fast"].split(","))
             st.success(f"Auto-detected: {lat_preview:.6f}, {lon_preview:.6f}")
         except Exception:
             st.error("Auto location couldn't be parsed.")
 
     # Manual fallback inputs (visible if no auto location)
+    def use_manual_location(lat, lon):
+        st.session_state["loc_input_fast"] = f"{lat},{lon}"
+
     manual_lat = manual_lon = None
-    if not location:
+    if not st.session_state.get("loc_input_fast", ""):
         st.markdown("If automatic detection is slow or denied, enter coordinates manually:")
         c1, c2 = st.columns(2)
-        manual_lat = c1.number_input("Manual Latitude", format="%.6f", value=0.0)
-        manual_lon = c2.number_input("Manual Longitude", format="%.6f", value=0.0)
-        if st.button("Use manual location"):
-            st.session_state["loc_input_fast"] = f"{manual_lat},{manual_lon}"
-            location = st.session_state.get("loc_input_fast", "")
+        # give manual inputs stable keys to preserve values across reruns
+        manual_lat = c1.number_input("Manual Latitude", format="%.6f", value=0.0, key="manual_lat_input")
+        manual_lon = c2.number_input("Manual Longitude", format="%.6f", value=0.0, key="manual_lon_input")
+        st.button("Use manual location", on_click=use_manual_location, args=(manual_lat, manual_lon))
 
     # Button to render map for current location (uses the hidden input or manual)
     if st.button("Current Location", key="map-button"):
-        loc_val = st.session_state.get("loc_input_fast", location)
+        loc_val = st.session_state.get("loc_input_fast", "")
         if loc_val:
             try:
                 lat, lon = map(float, loc_val.split(","))
@@ -216,7 +222,7 @@ if page == "Predict":
             full_input.update(user_inputs)
 
             # Add numeric lat/lon if available
-            loc_val = st.session_state.get("loc_input_fast", location)
+            loc_val = st.session_state.get("loc_input_fast", "")
             if loc_val:
                 try:
                     lat_s, lon_s = loc_val.split(",")
