@@ -87,7 +87,7 @@ if page == "Home":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
-# PREDICTION (auto geolocation)
+# PREDICTION (fast auto geolocation + manual fallback)
 # ===============================
 if page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -107,18 +107,15 @@ if page == "Predict":
         if province in districts:
             district = st.selectbox("Select District", ["Select District"] + districts[province])
 
-    st.write("The app will attempt to auto-detect your location (browser will ask for permission).")
+    st.write("The app will attempt to auto-detect your location quickly (browser will ask for permission). If it takes too long you can enter coordinates manually.")
 
     # Inject JS that automatically gets geolocation on page load and writes to the hidden input.
-    # It retries until the Streamlit hidden input is present in the DOM.
+    # Faster options: enableHighAccuracy: false, maximumAge: 60000, timeout: 5000
     st.markdown(
         """
         <script>
-        async function writeLocationToStreamlit() {
-            const findInput = () => {
-                // Streamlit gives inputs ids like 'location_input' + suffix; search by starts-with
-                return window.parent.document.querySelectorAll('input[id^="auto_location_input"]');
-            };
+        async function writeLocationToStreamlitQuick() {
+            const findInput = () => window.parent.document.querySelectorAll('input[id^="fast_location_input"]');
             const tryGetInput = (retries, delay) => new Promise((resolve, reject) => {
                 let attempts = 0;
                 const timer = setInterval(() => {
@@ -137,7 +134,7 @@ if page == "Predict":
             });
 
             try {
-                const inputEl = await tryGetInput(50, 200); // retry ~10s max
+                const inputEl = await tryGetInput(20, 100); // ~2s max to find input element
                 if (!navigator.geolocation) {
                     console.warn("Geolocation not supported");
                     return;
@@ -147,22 +144,44 @@ if page == "Predict":
                     inputEl.dispatchEvent(new Event('change', { bubbles: true }));
                 }, (err) => {
                     console.warn("Geolocation error:", err);
-                }, { enableHighAccuracy: true, timeout: 10000 });
+                }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 5000 });
             } catch (e) {
                 console.warn("Could not find Streamlit input element for geolocation:", e);
             }
         }
         // Start after a short delay so the Streamlit DOM is ready
-        setTimeout(writeLocationToStreamlit, 300);
+        setTimeout(writeLocationToStreamlitQuick, 250);
         </script>
         """,
         unsafe_allow_html=True,
     )
 
     # Hidden text input that JS will populate automatically (stable key)
-    location = st.text_input("auto_location", value="", placeholder="Waiting for browser to provide location...", key="auto_location_input")
+    location = st.text_input("auto_location_fast", value="", placeholder="Waiting for browser to provide location...", key="fast_location_input")
 
-    # If location is available, parse and show map
+    # Show status while waiting for automatic location
+    if not location:
+        status_placeholder = st.empty()
+        status_placeholder.info("Fetching location quickly... allow location access when prompted.")
+    else:
+        status_placeholder = None
+
+    # Manual fallback after a short delay: show manual lat/lon inputs if no auto location
+    # We'll show fallback UI immediately in code but hide instructions until a timer; use JS to set a small flag is complicated,
+    # so use a simple approach: if location is empty, display manual inputs below so user can enter coordinates if desired.
+    manual_lat = manual_lon = None
+    if not location:
+        st.markdown("If automatic detection is slow or you denied permission, enter coordinates manually:")
+        col_a, col_b = st.columns(2)
+        manual_lat = col_a.number_input("Manual Latitude", format="%.6f", value=0.0)
+        manual_lon = col_b.number_input("Manual Longitude", format="%.6f", value=0.0)
+        if st.button("Use manual location"):
+            # set the hidden input in session_state so downstream code sees it
+            st.session_state["fast_location_input"] = f"{manual_lat},{manual_lon}"
+            # update local variable so map/prediction block runs in same interaction
+            location = st.session_state.get("fast_location_input", "")
+
+    # If location was auto-filled (or now set from manual), show map
     if location:
         try:
             lat_str, lon_str = location.split(",")
@@ -172,13 +191,14 @@ if page == "Predict":
             folium.Marker(location=[lat, lon], popup="Detected location", icon=folium.Icon(color="blue")).add_to(m)
             folium_static(m)
 
-            st.success(f"Detected location: {lat:.6f}, {lon:.6f}")
+            st.success(f"Location: {lat:.6f}, {lon:.6f}")
+
+            # Clear status message if shown
+            if status_placeholder:
+                status_placeholder.empty()
 
         except Exception:
             st.error("Couldn't parse location. Expected format 'lat,lon'.")
-
-    else:
-        st.info("Waiting for browser geolocation. Please allow location access when prompted by your browser.")
 
     # User feature inputs (uses selected_features list you loaded)
     user_inputs = {}
@@ -195,10 +215,11 @@ if page == "Predict":
             full_input = default_values.copy()
             full_input.update(user_inputs)
 
-            # Add numeric lat/lon if available
-            if location:
+            # Add numeric lat/lon if available in session_state or location var
+            loc_val = st.session_state.get("fast_location_input", location)
+            if loc_val:
                 try:
-                    lat_str, lon_str = location.split(",")
+                    lat_str, lon_str = loc_val.split(",")
                     full_input['Location_Lat'] = float(lat_str.strip())
                     full_input['Location_Lon'] = float(lon_str.strip())
                 except Exception:
@@ -207,8 +228,7 @@ if page == "Predict":
             # Build DataFrame for model
             input_df = pd.DataFrame([full_input])
 
-            # Ensure we pass the correct columns to encoder (selected_features should match)
-            # If encoder expects features in a particular order, ensure selected_features matches that.
+            # Ensure we pass correct columns to encoder
             encoded = encoder.transform(input_df[selected_features])
             encoded_df = pd.DataFrame(encoded, columns=selected_features)
 
