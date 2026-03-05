@@ -295,7 +295,23 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ===============================
 # MODEL INFO
 # ===============================
+elif page == "Model Info":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.title("🧠 Model Information")
 
+    st.write("""
+    **Model:** Support Vector Machine (RBF Kernel)  
+    **Feature Selection:** Boruta  
+    **Scaling:** StandardScaler  
+    **Encoding:** OrdinalEncoder  
+    **Deployment:** Streamlit Cloud Ready  
+    """)
+
+    st.subheader("Selected Predictors:")
+    for f in selected_features:
+        st.write(f"• {f}")
+
+    st.markdown("</div>", unsafe_allow_html=True)
 # ===============================
 # FEATURE GUIDE
 # ===============================
