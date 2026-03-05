@@ -308,10 +308,17 @@ elif page == "Model Info":
     """)
 
     st.subheader("Selected Predictors:")
-    for f in selected_features:
-        st.write(f"• {f}")
+    try:
+        if 'selected_features' in globals() and selected_features:
+            for f in selected_features:
+                st.write(f"• {f}")
+        else:
+            st.warning("Selected feature list is not available. Ensure 'selected_features.pkl' was loaded successfully.")
+    except Exception as e:
+        st.error(f"Error while displaying selected predictors: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
 # ===============================
 # FEATURE GUIDE
 # ===============================
@@ -319,10 +326,24 @@ elif page == "Feature Guide":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.title("📘 Feature Guide")
 
-    for col in full_features:
-        st.subheader(col)
-        st.write("Possible values:")
-        st.write(sorted(data[col].dropna().unique().tolist()))
+    try:
+        if 'full_features' in globals() and 'data' in globals() and isinstance(data, pd.DataFrame):
+            for col in full_features:
+                st.subheader(col)
+                st.write("Possible values:")
+                # Defensive: if column not in data, skip with warning
+                if col in data.columns:
+                    try:
+                        vals = sorted(data[col].dropna().unique().tolist())
+                        st.write(vals)
+                    except Exception as e:
+                        st.write(f"Could not list values for {col}: {e}")
+                else:
+                    st.write(f"Column '{col}' not found in loaded dataset.")
+        else:
+            st.warning("Feature list or dataset not available. Ensure 'augmented_data.csv' loaded and columns were set correctly.")
+    except Exception as e:
+        st.error(f"Error while building Feature Guide: {e}")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
