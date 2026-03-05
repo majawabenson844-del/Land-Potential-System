@@ -138,7 +138,7 @@ if page == "Home":
     """)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------- Predict page UI -----------------
+# ----------------- Predict page UI (robust) -----------------
 st.markdown("<div class='card'>", unsafe_allow_html=True)
 st.title("🔮 Predict Groundwater Potential")
 st.write("### Select values for the predictors:")
@@ -156,142 +156,143 @@ if country == "Zimbabwe":
     if province in districts:
         district = st.selectbox("Select District", ["Select District"] + districts[province])
 
-# ----- Geolocation component -----
+# Geolocation UI
 st.markdown("#### Detect your location (optional)")
 geo_col1, geo_col2 = st.columns([2,1])
 
+# Show detected location if already stored
+detected = st.session_state.get("detected_location", "")
+
 with geo_col1:
-    # A disabled text_input will be populated with coordinates once available
-    loc_input = st.text_input("Your Location (lat, lon)", value="", placeholder="Click 'Get Location' to auto-detect", key="location_input")
+    loc_display = st.text_input("Your Location (lat, lon)", value=detected, placeholder="Click 'Get Location' to auto-detect", key="location_input")
 
 with geo_col2:
     if st.button("📍 Get Location"):
-        # Render a small HTML/JS component to ask for geolocation permission and post coords back
-        geocode_html = """
+        # components.html returns the last text content of the embedded page.
+        # We build an HTML page that writes the coordinates as JSON into the document body,
+        # then components.html will return that HTML back to Python, which we can parse.
+        get_geo_html = """
         <html>
-        <body>
-        <script>
-        const sendCoords = (lat, lon) => {
-            const coords = {'lat': lat, 'lon': lon};
-            // Send to Streamlit by writing to parent window (works inside components.html)
-            window.parent.postMessage({isStreamlitMessage: true, type: 'geolocation', data: coords}, '*');
-        };
+          <body>
+            <script>
+              function send(msg) {
+                const pre = document.createElement('pre');
+                pre.id = 'out';
+                pre.innerText = JSON.stringify(msg);
+                document.body.appendChild(pre);
+              }
 
-        function handleError(err) {
-            const message = {'error': true, 'message': err.message || 'Geolocation error'};
-            window.parent.postMessage({isStreamlitMessage: true, type: 'geolocation', data: message}, '*');
-        }
+              function fail(message) {
+                send({error: true, message: message});
+              }
 
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    sendCoords(position.coords.latitude, position.coords.longitude);
-                },
-                (err) => { handleError(err); },
-                {enableHighAccuracy: true, timeout: 10000}
-            );
-        } else {
-            handleError({message: 'Geolocation not supported'});
-        }
-        </script>
-        </body>
+              if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                  function(pos) {
+                    send({lat: pos.coords.latitude, lon: pos.coords.longitude});
+                  },
+                  function(err) {
+                    fail(err.message || 'Geolocation error');
+                  },
+                  {enableHighAccuracy: true, timeout: 10000}
+                );
+              } else {
+                fail('Geolocation not supported');
+              }
+            </script>
+          </body>
         </html>
         """
-        # components.html will host the JS and allow receiving messages in Python-side via `components.html` return value
-        components.html(geocode_html, height=0, scrolling=False)
+        try:
+            raw = components.html(get_geo_html, height=200)  # raw will contain the page HTML including our <pre>
+            # Extract JSON from the returned HTML by searching for the <pre> content
+            import re, json
+            m = re.search(r"<pre id=\"out\">(.*?)</pre>", raw, re.S)
+            if m:
+                payload = json.loads(m.group(1))
+                if isinstance(payload, dict) and not payload.get("error", False):
+                    coords = f"{payload['lat']}, {payload['lon']}"
+                    st.session_state["detected_location"] = coords
+                    # Update the text_input by setting session_state key
+                    st.experimental_rerun()
+                else:
+                    err_msg = payload.get("message", "Unknown geolocation error")
+                    st.warning(f"Geolocation failed: {err_msg}")
+            else:
+                st.warning("Could not read geolocation response. Please allow location permission or paste coordinates manually.")
+        except Exception as e:
+            st.error(f"Geolocation component error: {e}")
 
-        # Small pause to let JS run and message be received by Streamlit (message handling below)
-        time.sleep(0.1)
-
-# Streamlit cannot directly capture window.postMessage from components.html. Use a tiny workaround:
-# create a second components.html that listens to window messages and writes the coordinates into
-# an element that Streamlit can read back via "components.html" return value.
-# This snippet repeatedly injects a script that listens for that message and then writes JSON to the page.
-listen_html = """
-<html>
-  <body>
-    <div id="out"></div>
-    <script>
-      window.addEventListener('message', (event) => {
-        try {
-          const msg = event.data;
-          if (msg && msg.type === 'geolocation') {
-            const node = document.getElementById('out');
-            node.innerText = JSON.stringify(msg.data);
-          }
-        } catch(e) { }
-      }, false);
-    </script>
-  </body>
-</html>
-"""
-out = components.html(listen_html, height=50)
-
-# The components.html above returns the static HTML, but we can fetch the value by re-rendering and reading via st.session_state.
-# A more reliable approach: provide an explicit text area for the user to paste coordinates if automatic detection fails.
-st.markdown("If automatic detection fails, please paste coordinates in the format: lat, lon (e.g., -19.0154, 29.1549).")
-
-# Allow manual paste as fallback
+# Manual fallback
+st.markdown("If automatic detection fails, paste coordinates in the format: lat, lon (e.g., -19.0154, 29.1549).")
 manual_location = st.text_input("Or paste coordinates here", value="", placeholder="-19.0154, 29.1549", key="manual_loc")
 
-# Prefer detected location (if any) otherwise manual
-# Note: as Streamlit cannot directly capture the postMessage into Python without a dedicated component, use manual_location when provided.
-# If you have a custom Streamlit Component installed for geolocation, replace this fallback with the component output.
-location = ""
-if manual_location:
-    location = manual_location.strip()
-elif loc_input:
-    location = loc_input.strip()
+# Determine final location value (preference: detected, then manual)
+location = st.session_state.get("detected_location", "") or (manual_location.strip() if manual_location else "")
 
 # ---------------- Feature inputs ----------------
 user_inputs = {}
-for feature in selected_features:
-    options = sorted(data[feature].dropna().unique().tolist())
-    user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, key=f"feat_{feature}")
+# Defensive: ensure selected_features and data exist
+if 'selected_features' not in globals() or selected_features is None:
+    st.error("Selected features are not loaded. Check that 'selected_features.pkl' was loaded successfully.")
+else:
+    for feature in selected_features:
+        if feature in data.columns:
+            options = sorted(data[feature].dropna().unique().tolist())
+            user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, key=f"feat_{feature}")
+        else:
+            # If feature missing from data, show a text input so user can still provide something
+            user_inputs[feature] = st.text_input(f"🔸 {feature} (enter value)", value=default_values.get(feature, ""), key=f"feat_{feature}")
 
 # ----- Prediction button -----
 if st.button("✨ Predict Potential"):
     try:
-        # Build full input
-        full_input = default_values.copy()
-        full_input.update(user_inputs)
-
-        # Add location if model expects it
-        if location:
-            full_input['Location'] = location  # ensure your model supports this column
-
-        # Ensure ordering and presence of features
-        input_df = pd.DataFrame([full_input])[full_features]
-
-        # Encode
-        encoded = encoder.transform(input_df)
-        encoded_df = pd.DataFrame(encoded, columns=full_features)
-
-        # Select Boruta features
-        selected_df = encoded_df[selected_features]
-
-        # Scale
-        scaled = scaler.transform(selected_df)
-
-        # Predict
-        pred = model.predict(scaled)[0]
-        probs = model.predict_proba(scaled)[0]
-
-        st.markdown("---")
-        if pred == 1:
-            st.success("🌱 High Potential Area")
+        # Check artifacts
+        missing = []
+        for name in ("encoder", "scaler", "model"):
+            if name not in globals() or globals()[name] is None:
+                missing.append(name)
+        if missing:
+            st.error(f"Required objects not loaded: {', '.join(missing)}")
         else:
-            st.error("⚠️ Low Potential Area")
+            full_input = default_values.copy()
+            full_input.update(user_inputs)
 
-        col1, col2 = st.columns(2)
-        col1.metric("High Potential Confidence", f"{probs[1]*100:.2f}%")
-        col2.metric("Low Potential Confidence", f"{probs[0]*100:.2f}%")
+            # Only add Location if the model actually expects it (i.e., 'Location' is in full_features)
+            if location and 'Location' in full_features:
+                full_input['Location'] = location
+
+            # Ensure all expected columns exist
+            for col in full_features:
+                if col not in full_input:
+                    full_input[col] = default_values.get(col, "")
+
+            input_df = pd.DataFrame([full_input])[full_features]
+
+            encoded = encoder.transform(input_df)
+            encoded_df = pd.DataFrame(encoded, columns=full_features)
+
+            selected_df = encoded_df[selected_features]
+
+            scaled = scaler.transform(selected_df)
+
+            pred = model.predict(scaled)[0]
+            probs = model.predict_proba(scaled)[0]
+
+            st.markdown("---")
+            if pred == 1:
+                st.success("🌱 High Potential Area")
+            else:
+                st.error("⚠️ Low Potential Area")
+
+            col1, col2 = st.columns(2)
+            col1.metric("High Potential Confidence", f"{probs[1]*100:.2f}%")
+            col2.metric("Low Potential Confidence", f"{probs[0]*100:.2f}%")
 
     except Exception as e:
         st.error(f"System Error: {e}")
 
 st.markdown("</div>", unsafe_allow_html=True)
-
 # ===============================
 # MODEL INFO
 # ===============================
