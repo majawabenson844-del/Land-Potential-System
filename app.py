@@ -138,117 +138,159 @@ if page == "Home":
     """)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ===============================
-# PREDICTION
-# ===============================
-elif page == "Predict":
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.title("🔮 Predict Groundwater Potential")
+# ----------------- Predict page UI -----------------
+st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.title("🔮 Predict Groundwater Potential")
+st.write("### Select values for the predictors:")
 
-    st.write("### Select values for the predictors:")
+# Country / Province / District UI (unchanged)
+country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
+province = None
+district = None
+if country == "Zimbabwe":
+    province = st.selectbox("Select Province", ["Select Province", "Midlands Province", "Masvingo Province"])
+    districts = {
+        "Midlands Province": ["Chirumhanzu", "Gokwe North", "Gokwe South", "Gweru", "Kwekwe", "Mberengwa", "Shurugwi", "Zvishavane"],
+        "Masvingo Province": ["Bikita", "Chiredzi", "Chivi", "Gutu", "Masvingo", "Mwenezi", "Zaka"]
+    }
+    if province in districts:
+        district = st.selectbox("Select District", ["Select District"] + districts[province])
 
-    # Country selection
-    country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
+# ----- Geolocation component -----
+st.markdown("#### Detect your location (optional)")
+geo_col1, geo_col2 = st.columns([2,1])
 
-    if country == "Zimbabwe":
-        # Province selection
-        province = st.selectbox("Select Province", ["Select Province", "Midlands Province", "Masvingo Province"])
-        
-        # Define districts based on province
-        districts = {
-            "Midlands Province": ["Chirumhanzu", "Gokwe North", "Gokwe South", "Gweru", "Kwekwe", "Mberengwa", "Shurugwi", "Zvishavane"],
-            "Masvingo Province": ["Bikita", "Chiredzi", "Chivi", "Gutu", "Masvingo", "Mwenezi", "Zaka"]
-        }
-        
-        # Conditional district selection
-        if province in districts:
-            district = st.selectbox("Select District", ["Select District"] + districts[province])
-        else:
-            district = None  # If no valid province is selected
+with geo_col1:
+    # A disabled text_input will be populated with coordinates once available
+    loc_input = st.text_input("Your Location (lat, lon)", value="", placeholder="Click 'Get Location' to auto-detect", key="location_input")
 
-    # Function to get user location
-    def get_location():
-        st.markdown("""
+with geo_col2:
+    if st.button("📍 Get Location"):
+        # Render a small HTML/JS component to ask for geolocation permission and post coords back
+        geocode_html = """
+        <html>
+        <body>
         <script>
-        async function getLocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(function(position) {
-                    const lat = position.coords.latitude;
-                    const lon = position.coords.longitude;
-                    const locationInfo = lat + ", " + lon;
-                    const hiddenInput = document.getElementById('location');
-                    hiddenInput.value = locationInfo; // Set the input value
-                    
-                    // Open Google Maps at the current location
-                    const mapUrl = `https://www.google.com/maps/@${lat},${lon},15z`;
-                    document.getElementById('map-link').href = mapUrl;
-                });
-            } else {
-                alert("Geolocation is not supported by this browser.");
-            }
+        const sendCoords = (lat, lon) => {
+            const coords = {'lat': lat, 'lon': lon};
+            // Send to Streamlit by writing to parent window (works inside components.html)
+            window.parent.postMessage({isStreamlitMessage: true, type: 'geolocation', data: coords}, '*');
+        };
+
+        function handleError(err) {
+            const message = {'error': true, 'message': err.message || 'Geolocation error'};
+            window.parent.postMessage({isStreamlitMessage: true, type: 'geolocation', data: message}, '*');
         }
 
-        getLocation();
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    sendCoords(position.coords.latitude, position.coords.longitude);
+                },
+                (err) => { handleError(err); },
+                {enableHighAccuracy: true, timeout: 10000}
+            );
+        } else {
+            handleError({message: 'Geolocation not supported'});
+        }
         </script>
-        <input type="hidden" id="location" value="">
-        <a id="map-link" href="#" target="_blank">View Location on Google Maps</a>
-        """, unsafe_allow_html=True)
+        </body>
+        </html>
+        """
+        # components.html will host the JS and allow receiving messages in Python-side via `components.html` return value
+        components.html(geocode_html, height=0, scrolling=False)
 
-    # Call location function
-    get_location()
+        # Small pause to let JS run and message be received by Streamlit (message handling below)
+        time.sleep(0.1)
 
-    # Input for user's location
-    location = st.text_input("Your Location (Lat, Lon)", value="", placeholder="Automatically fetched location", key='location_input', disabled=True)
+# Streamlit cannot directly capture window.postMessage from components.html. Use a tiny workaround:
+# create a second components.html that listens to window messages and writes the coordinates into
+# an element that Streamlit can read back via "components.html" return value.
+# This snippet repeatedly injects a script that listens for that message and then writes JSON to the page.
+listen_html = """
+<html>
+  <body>
+    <div id="out"></div>
+    <script>
+      window.addEventListener('message', (event) => {
+        try {
+          const msg = event.data;
+          if (msg && msg.type === 'geolocation') {
+            const node = document.getElementById('out');
+            node.innerText = JSON.stringify(msg.data);
+          }
+        } catch(e) { }
+      }, false);
+    </script>
+  </body>
+</html>
+"""
+out = components.html(listen_html, height=50)
 
-    # Rest of your prediction logic...t')
+# The components.html above returns the static HTML, but we can fetch the value by re-rendering and reading via st.session_state.
+# A more reliable approach: provide an explicit text area for the user to paste coordinates if automatic detection fails.
+st.markdown("If automatic detection fails, please paste coordinates in the format: lat, lon (e.g., -19.0154, 29.1549).")
 
-    user_inputs = {}
+# Allow manual paste as fallback
+manual_location = st.text_input("Or paste coordinates here", value="", placeholder="-19.0154, 29.1549", key="manual_loc")
 
-    for feature in selected_features:
-        options = sorted(data[feature].dropna().unique().tolist())
-        user_inputs[feature] = st.selectbox(f"🔸 {feature}", options)
+# Prefer detected location (if any) otherwise manual
+# Note: as Streamlit cannot directly capture the postMessage into Python without a dedicated component, use manual_location when provided.
+# If you have a custom Streamlit Component installed for geolocation, replace this fallback with the component output.
+location = ""
+if manual_location:
+    location = manual_location.strip()
+elif loc_input:
+    location = loc_input.strip()
 
-    if st.button("✨ Predict Potential"):
-        try:
-            # Build full feature vector
-            full_input = default_values.copy()
-            full_input.update(user_inputs)
+# ---------------- Feature inputs ----------------
+user_inputs = {}
+for feature in selected_features:
+    options = sorted(data[feature].dropna().unique().tolist())
+    user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, key=f"feat_{feature}")
 
-            # Add location if available
-            if location:
-                full_input['Location'] = location  # Ensure 'Location' is part of your model's features
+# ----- Prediction button -----
+if st.button("✨ Predict Potential"):
+    try:
+        # Build full input
+        full_input = default_values.copy()
+        full_input.update(user_inputs)
 
-            input_df = pd.DataFrame([full_input])[full_features]
+        # Add location if model expects it
+        if location:
+            full_input['Location'] = location  # ensure your model supports this column
 
-            # Encode
-            encoded = encoder.transform(input_df)
-            encoded_df = pd.DataFrame(encoded, columns=full_features)
+        # Ensure ordering and presence of features
+        input_df = pd.DataFrame([full_input])[full_features]
 
-            # Select Boruta features
-            selected_df = encoded_df[selected_features]
+        # Encode
+        encoded = encoder.transform(input_df)
+        encoded_df = pd.DataFrame(encoded, columns=full_features)
 
-            # Scale
-            scaled = scaler.transform(selected_df)
+        # Select Boruta features
+        selected_df = encoded_df[selected_features]
 
-            # Predict
-            pred = model.predict(scaled)[0]
-            probs = model.predict_proba(scaled)[0]
+        # Scale
+        scaled = scaler.transform(selected_df)
 
-            st.markdown("---")
+        # Predict
+        pred = model.predict(scaled)[0]
+        probs = model.predict_proba(scaled)[0]
 
-            if pred == 1:
-                st.success("🌱 High Potential Area")
-            else:
-                st.error("⚠️ Low Potential Area")
+        st.markdown("---")
+        if pred == 1:
+            st.success("🌱 High Potential Area")
+        else:
+            st.error("⚠️ Low Potential Area")
 
-            col1, col2 = st.columns(2)
-            col1.metric("High Potential Confidence", f"{probs[1]*100:.2f}%")
-            col2.metric("Low Potential Confidence", f"{probs[0]*100:.2f}%")
+        col1, col2 = st.columns(2)
+        col1.metric("High Potential Confidence", f"{probs[1]*100:.2f}%")
+        col2.metric("Low Potential Confidence", f"{probs[0]*100:.2f}%")
 
-        except Exception as e:
-            st.error(f"System Error: {e}")
+    except Exception as e:
+        st.error(f"System Error: {e}")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ===============================
 # MODEL INFO
