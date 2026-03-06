@@ -64,9 +64,9 @@ except Exception as e:
 # Example: optional district centroids (latitude, longitude).
 # You can expand this with real centroid coordinates.
 DISTRICT_CENTROIDS = {
-    "Chirumhanzu": (-19.0, 31.9),
-    "Gokwe North": (-18.3, 27.0),
-    "Gokwe South": (-18.6, 27.1),
+    "Chirumhanzu": (-19.3338, 30.4358),
+    "Gokwe North": (-17.4638, 28.8597),
+    "Gokwe South": (-18.21, 28.49),
     "Gweru": (-19.45, 29.82),
     "Kwekwe": (-18.92, 29.81),
     "Mberengwa": (-20.2, 30.2),
