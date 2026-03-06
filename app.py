@@ -5,7 +5,14 @@ import numpy as np
 import joblib
 import re
 import json
-import time
+
+# Try to import folium and streamlit_folium
+try:
+    import folium
+    from streamlit_folium import st_folium
+    FOLIUM_AVAILABLE = True
+except Exception:
+    FOLIUM_AVAILABLE = False
 
 # ===============================
 # Page Config
@@ -20,7 +27,6 @@ st.set_page_config(
 # ===============================
 # Load Artifacts
 # ===============================
-# Wrap loads in try/except so app doesn't crash if files missing
 def safe_load(path, name):
     try:
         return joblib.load(path)
@@ -54,6 +60,26 @@ except Exception as e:
     st.error(f"Could not load dataset augmented_data.csv: {e}")
     data = pd.DataFrame()
     full_features = []
+
+# Example: optional district centroids (latitude, longitude).
+# You can expand this with real centroid coordinates.
+DISTRICT_CENTROIDS = {
+    "Chirumhanzu": (-19.0, 31.9),
+    "Gokwe North": (-18.3, 27.0),
+    "Gokwe South": (-18.6, 27.1),
+    "Gweru": (-19.45, 29.82),
+    "Kwekwe": (-18.92, 29.81),
+    "Mberengwa": (-20.2, 30.2),
+    "Shurugwi": (-19.6, 30.0),
+    "Zvishavane": (-20.33, 30.03),
+    "Bikita": (-20.96, 31.58),
+    "Chiredzi": (-21.05, 31.67),
+    "Chivi": (-20.2, 31.4),
+    "Gutu": (-20.46, 30.99),
+    "Masvingo": (-20.07, 30.83),
+    "Mwenezi": (-21.55, 31.6),
+    "Zaka": (-20.33, 31.6),
+}
 
 # ===============================
 # Default values for hidden features
@@ -161,13 +187,13 @@ if page == "Home":
     """)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------- Predict page UI (robust) -----------------
+# ----------------- Predict page UI (folium integrated) -----------------
 elif page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.title("🔮 Predict Groundwater Potential")
     st.write("### Select values for the predictors:")
 
-    # Country / Province / District UI (unchanged)
+    # Country / Province / District UI
     country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
     province = None
     district = None
@@ -184,7 +210,6 @@ elif page == "Predict":
     st.markdown("#### Detect your location (optional)")
     geo_col1, geo_col2 = st.columns([2,1])
 
-    # Show detected location if already stored
     detected = st.session_state.get("detected_location", "")
 
     with geo_col1:
@@ -244,13 +269,51 @@ elif page == "Predict":
     # Manual fallback
     st.markdown("If automatic detection fails, paste coordinates in the format: lat, lon (e.g., -19.0154, 29.1549).")
     manual_location = st.text_input("Or paste coordinates here", value="", placeholder="-19.0154, 29.1549", key="manual_loc")
-
-    # Determine final location value (preference: detected, then manual)
     location = st.session_state.get("detected_location", "") or (manual_location.strip() if manual_location else "")
+
+    # Show folium map if available
+    if not FOLIUM_AVAILABLE:
+        st.warning("folium or streamlit_folium not installed. To enable map display, install via: pip install folium streamlit-folium")
+    else:
+        # Decide map center and markers
+        map_center = (-19.0, 29.0)  # default center for Zimbabwe-ish
+        m = folium.Map(location=map_center, zoom_start=6, tiles="OpenStreetMap")
+
+        # If user provided manual or detected location, parse and add marker
+        def parse_coords(s):
+            try:
+                parts = [p.strip() for p in s.split(",")]
+                if len(parts) >= 2:
+                    lat = float(parts[0])
+                    lon = float(parts[1])
+                    return lat, lon
+            except Exception:
+                return None
+
+        user_point = None
+        if location:
+            parsed = parse_coords(location)
+            if parsed:
+                user_point = parsed
+                folium.Marker(location=parsed, tooltip="Your Location", icon=folium.Icon(color="blue", icon="user")).add_to(m)
+                m.location = parsed
+                m.zoom_start = 12
+
+        # If district selected and centroid known, add marker and (if no user point) center map there
+        if district and district != "Select District":
+            centroid = DISTRICT_CENTROIDS.get(district)
+            if centroid:
+                folium.Marker(location=centroid, tooltip=f"District: {district}", icon=folium.Icon(color="green", icon="map-marker")).add_to(m)
+                if not user_point:
+                    m.location = centroid
+                    m.zoom_start = 10
+
+        # Render map
+        st.caption("Map: detected or manual location (blue) and selected district centroid (green)")
+        st_folium(m, width=700, height=400)
 
     # ---------------- Feature inputs ----------------
     user_inputs = {}
-    # Defensive: ensure selected_features and data exist
     if selected_features is None:
         st.error("Selected features are not loaded. Check that 'selected_features.pkl' was loaded successfully.")
     else:
@@ -259,13 +322,11 @@ elif page == "Predict":
                 options = sorted(data[feature].dropna().unique().tolist())
                 user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, key=f"feat_{feature}")
             else:
-                # If feature missing from data, show a text input so user can still provide something
                 user_inputs[feature] = st.text_input(f"🔸 {feature} (enter value)", value=default_values.get(feature, ""), key=f"feat_{feature}")
 
     # ----- Prediction button -----
     if st.button("✨ Predict Potential"):
         try:
-            # Check artifacts
             missing = []
             for name in ("encoder", "scaler", "model"):
                 if globals().get(name, None) is None:
@@ -276,11 +337,9 @@ elif page == "Predict":
                 full_input = default_values.copy()
                 full_input.update(user_inputs)
 
-                # Only add Location if the model actually expects it (i.e., 'Location' is in full_features)
                 if location and 'Location' in full_features:
                     full_input['Location'] = location
 
-                # Ensure all expected columns exist
                 for col in full_features:
                     if col not in full_input:
                         full_input[col] = default_values.get(col, "")
@@ -288,7 +347,6 @@ elif page == "Predict":
                 input_df = pd.DataFrame([full_input])[full_features]
 
                 encoded = encoder.transform(input_df)
-                # encoder may return numpy; ensure columns line up with full_features
                 encoded_df = pd.DataFrame(encoded, columns=full_features)
 
                 selected_df = encoded_df[selected_features]
@@ -352,7 +410,6 @@ elif page == "Feature Guide":
             for col in full_features:
                 st.subheader(col)
                 st.write("Possible values:")
-                # Defensive: if column not in data, skip with warning
                 if col in data.columns:
                     try:
                         vals = sorted(data[col].dropna().unique().tolist())
