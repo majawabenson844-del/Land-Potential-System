@@ -6,3 +6,5 @@ joblib
 boruta
 folium
 streamlit-folium
+streamlit-geolocation
+geopy
