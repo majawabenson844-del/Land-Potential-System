@@ -4,9 +4,7 @@ import joblib
 
 from streamlit_geolocation import streamlit_geolocation
 
-# -----------------------------
-# Optional: Map preview
-# -----------------------------
+# Optional map preview
 try:
     import folium
     from streamlit_folium import st_folium
@@ -24,7 +22,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
 
 # ===============================
 # Theme
@@ -60,7 +57,6 @@ label { font-size:20px !important; font-weight:800 !important; color:#f5c77a !im
     unsafe_allow_html=True,
 )
 
-
 # ===============================
 # Load Artifacts
 # ===============================
@@ -86,7 +82,8 @@ default_values = {}
 
 try:
     data = pd.read_csv("augmented_data.csv")
-    # expected columns order:
+
+    # If your CSV has a different order/names, edit these lines:
     data.columns = [
         "Decision",
         "Soil.Texture",
@@ -97,10 +94,10 @@ try:
         "Natural.vegitation..tree..height",
         "Drainage.Density",
     ]
+
     full_features = [c for c in data.columns if c != "Decision"]
 
     for col in full_features:
-        # default using mode if possible
         try:
             default_values[col] = data[col].mode(dropna=True).iloc[0]
         except Exception:
@@ -111,14 +108,12 @@ except Exception as e:
     full_features = []
     default_values = {}
 
-
 # ===============================
 # Sidebar
 # ===============================
 st.sidebar.title("🌍 Groundwater Potential Mapping")
 page = st.sidebar.radio(
-    "Navigation",
-    ["Home", "Predict", "Model Info", "Feature Guide", "About"],
+    "Navigation", ["Home", "Predict", "Model Info", "Feature Guide", "About"]
 )
 
 
@@ -146,25 +141,26 @@ By BENSON T MAJAWA
 
 
 # ===============================
-# PREDICT (FIXED GPS + FIXED rerun)
+# PREDICT
 # ===============================
 elif page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.title("🔮 Predict Groundwater Potential")
     st.write("### Select values for the predictors:")
 
-    # session state (NO experimental_rerun, NO key= for streamlit_geolocation)
-    if "refresh" not in st.session_state:
-        st.session_state["refresh"] = 0
+    # session state (safe approach; no experimental_rerun, no key= in geolocation)
     if "detected_latlon" not in st.session_state:
         st.session_state["detected_latlon"] = None
+
+    if "refresh" not in st.session_state:
+        st.session_state["refresh"] = 0
 
     st.subheader("📍 Detect your location (real-time GPS)")
 
     geo_col1, geo_col2 = st.columns([2, 1])
 
     with geo_col1:
-        # IMPORTANT: remove key=
+        # IMPORTANT: your installed streamlit-geolocation does NOT accept key=
         gps = streamlit_geolocation()
 
         if gps:
@@ -174,6 +170,9 @@ elif page == "Predict":
                 st.session_state["detected_latlon"] = (lat, lon)
                 st.success(f"Real-time: {lat}, {lon}")
 
+        # Debug (helps confirm GPS works)
+        st.write("GPS raw (latitude/longitude):", gps)
+
     with geo_col2:
         if st.button("↻ Re-detect"):
             st.session_state["detected_latlon"] = None
@@ -182,46 +181,72 @@ elif page == "Predict":
 
     latlon = st.session_state.get("detected_latlon", None)
 
-    # Optional map preview
+    # ---- Map Preview with a clearly visible marker ----
     if FOLIUM_AVAILABLE:
+        # Zimbabwe-ish fallback if GPS missing
+        base_location = latlon if latlon else (-19.0, 29.0)
+
+        m = folium.Map(location=base_location, zoom_start=14, tiles="OpenStreetMap")
+
         if latlon:
-            m = folium.Map(location=latlon, zoom_start=12, tiles="OpenStreetMap")
-            folium.Marker(
-                location=latlon,
-                tooltip="Your Location",
-                icon=folium.Icon(color="blue", icon="user"),
+            lat, lon = latlon
+
+            # Big circle marker (high visibility)
+            folium.CircleMarker(
+                location=[lat, lon],
+                radius=16,
+                color="#00ffea",
+                fill=True,
+                fill_color="#00ffea",
+                fill_opacity=0.95,
+                popup="You are here",
             ).add_to(m)
-        else:
-            # Zimbabwe-ish default
-            m = folium.Map(location=(-19.0, 29.0), zoom_start=6, tiles="OpenStreetMap")
-        st_folium(m, width=700, height=360)
+
+            # Text label marker using DivIcon
+            folium.map.Marker(
+                [lat, lon],
+                icon=folium.DivIcon(
+                    html=f"""
+                    <div style="
+                        font-size:14px;
+                        font-weight:900;
+                        color:#000;
+                        background:#00ffea;
+                        padding:6px 10px;
+                        border-radius:10px;
+                        box-shadow: 0 0 14px rgba(0,255,234,0.6);
+                        border:2px solid #ffffff;
+                    ">
+                    YOU
+                    </div>
+                    """
+                ),
+            ).add_to(m)
+
+        st_folium(m, width=700, height=380)
+
     else:
         st.info("Map preview disabled (install folium + streamlit-folium if you want).")
 
-    st.caption("Note: Your dataset/model does NOT use district coordinates, so GPS is only for display.")
+    st.caption("If you don’t see the marker, it means GPS returned nothing (check the GPS raw line above).")
 
     st.markdown("---")
     st.subheader("🧩 Predictor inputs")
 
     if selected_features is None:
         st.error("Selected features are not loaded. Check selected_features.pkl.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
     elif data is None or data.empty:
         st.error("Dataset not loaded correctly. Check augmented_data.csv.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
     else:
         user_inputs = {}
 
-        # Build UI for each selected feature
         for feature in selected_features:
+            # If feature exists in your dataset, use select options
             if feature in data.columns:
-                # category/select
                 options = sorted(data[feature].dropna().unique().tolist())
                 user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, key=f"feat_{feature}")
             else:
-                # fallback (if a feature isn't in columns)
+                # Otherwise allow manual entry (string)
                 user_inputs[feature] = st.text_input(
                     f"🔸 {feature} (enter value)",
                     key=f"feat_{feature}",
@@ -233,8 +258,8 @@ elif page == "Predict":
                 if model is None or scaler is None or encoder is None:
                     st.error("Model/scaler/encoder not loaded. Check pickle files.")
                 else:
-                    # Create full input dictionary for ALL features expected by scaler/encoder
-                    full_input = default_values.copy()
+                    # Build full input for ALL features used by the pipeline
+                    full_input = dict(default_values)
                     full_input.update(user_inputs)
 
                     # Ensure all full_features exist
@@ -242,7 +267,7 @@ elif page == "Predict":
                         if col not in full_input:
                             full_input[col] = default_values.get(col, "")
 
-                    # Order columns exactly as full_features
+                    # Order columns exactly
                     input_df = pd.DataFrame([full_input])[full_features]
 
                     # Encode + scale + select
@@ -257,7 +282,6 @@ elif page == "Predict":
                     probs = model.predict_proba(scaled)[0]
 
                     st.markdown("---")
-
                     if pred == 1:
                         st.success("🌱 High Potential Area")
                     else:
