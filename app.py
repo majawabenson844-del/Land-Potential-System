@@ -1,18 +1,18 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import joblib
-import re
-import json
 
-# Try to import folium and streamlit_folium
+from streamlit_geolocation import streamlit_geolocation
+
+# folium (optional)
 try:
     import folium
     from streamlit_folium import st_folium
     FOLIUM_AVAILABLE = True
 except Exception:
     FOLIUM_AVAILABLE = False
+
 
 # ===============================
 # Page Config
@@ -61,37 +61,6 @@ except Exception as e:
     data = pd.DataFrame()
     full_features = []
 
-# Example: optional district centroids (latitude, longitude).
-# You can expand this with real centroid coordinates.
-DISTRICT_CENTROIDS = {
-    "Chirumhanzu": (-19.3338, 30.4358),
-    "Gokwe North": (-17.4638, 28.8597),
-    "Gokwe South": (-18.21, 28.49),
-    "Gweru": (-19.45, 29.82),
-    "Kwekwe": (-18.92, 29.81),
-    "Mberengwa": (-20.2, 30.2),
-    "Shurugwi": (-19.6, 30.0),
-    "Zvishavane": (-20.33, 30.03),
-    "Bikita": (-20.96, 31.58),
-    "Chiredzi": (-21.05, 31.67),
-    "Chivi": (-20.2, 31.4),
-    "Gutu": (-20.46, 30.99),
-    "Masvingo": (-20.07, 30.83),
-    "Mwenezi": (-21.55, 31.6),
-    "Zaka": (-20.33, 31.6),
-}
-
-# ===============================
-# Default values for hidden features
-# ===============================
-default_values = {}
-if not data.empty:
-    for col in full_features:
-        try:
-            default_values[col] = data[col].mode()[0]
-        except Exception:
-            default_values[col] = ""
-
 # ===============================
 # GOLD + BLACK PREMIUM THEME
 # ===============================
@@ -102,11 +71,7 @@ def apply_gold_black_theme():
         background-color: #0b0b0b;
         color: #f5c77a;
     }
-
-    .block-container {
-        padding: 2.5rem;
-    }
-
+    .block-container { padding: 2.5rem; }
     .card {
         background: linear-gradient(145deg, #0f0f0f, #1a1a1a);
         border-radius: 18px;
@@ -115,26 +80,22 @@ def apply_gold_black_theme():
         border: 1px solid rgba(245, 199, 122, 0.2);
         box-shadow: 0 0 25px rgba(245, 199, 122, 0.15);
     }
-
     h1, h2, h3 {
         color: #f5c77a !important;
         font-weight: 800 !important;
         letter-spacing: 1px;
     }
-
     label {
         font-size: 20px !important;
         font-weight: 800 !important;
         color: #f5c77a !important;
     }
-
     .stSelectbox > div {
         background-color: #121212 !important;
         border: 1px solid #f5c77a !important;
         border-radius: 10px;
         color: white !important;
     }
-
     .stButton button {
         background: linear-gradient(90deg, #f5c77a, #ffd98e);
         color: black;
@@ -146,16 +107,11 @@ def apply_gold_black_theme():
         box-shadow: 0 0 15px rgba(245,199,122,0.4);
         transition: 0.3s;
     }
-
     .stButton button:hover {
         transform: scale(1.05);
         box-shadow: 0 0 25px rgba(245,199,122,0.7);
     }
-
-    .sidebar .sidebar-content {
-        background-color: #0f0f0f;
-    }
-
+    .sidebar .sidebar-content { background-color: #0f0f0f; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -166,6 +122,7 @@ apply_gold_black_theme()
 # ===============================
 st.sidebar.title("🌍 Groundwater Potential Mapping")
 page = st.sidebar.radio("Navigation", ["Home", "Predict", "Model Info", "Feature Guide", "About"])
+
 
 # ===============================
 # HOME
@@ -187,162 +144,128 @@ if page == "Home":
     """)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------- Predict page UI (folium integrated) -----------------
+
+# ===============================
+# Predict Page (district auto + NO manual centroid coordinates)
+# ===============================
 elif page == "Predict":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.title("🔮 Predict Groundwater Potential")
     st.write("### Select values for the predictors:")
 
-    # Country / Province / District UI
-    country = st.selectbox("Select Country", ["Select Country", "Zimbabwe"])
-    province = None
-    district = None
-    if country == "Zimbabwe":
-        province = st.selectbox("Select Province", ["Select Province", "Midlands Province", "Masvingo Province"])
-        districts = {
-            "Midlands Province": ["Chirumhanzu", "Gokwe North", "Gokwe South", "Gweru", "Kwekwe", "Mberengwa", "Shurugwi", "Zvishavane"],
-            "Masvingo Province": ["Bikita", "Chiredzi", "Chivi", "Gutu", "Masvingo", "Mwenezi", "Zaka"]
-        }
-        if province in districts:
-            district = st.selectbox("Select District", ["Select District"] + districts[province])
+    # --- IMPORTANT ---
+    # You said:
+    # - dataset has NO district fields and NO district-linked predictors
+    # - you do NOT want manually inserted district centroid coordinates
+    #
+    # Therefore, the only correct way to show "district" is to use reverse geocoding
+    # (turn lat/lon into district name). But that requires an external geocoding API
+    # and generally needs the "district" name to exist in that API's data.
+    #
+    # streamlit-geolocation provides lat/lon only; it does NOT give district names.
+    #
+    # So below we:
+    # 1) Detect GPS in real-time
+    # 2) Show lat/lon
+    # 3) Let you choose district manually is OPTIONAL,
+    #    but you asked you want district and NO manual coordinates.
+    #
+    # Since district-name from GPS is not available without reverse geocoding,
+    # we implement reverse geocoding using Nominatim (OpenStreetMap).
+    #
+    # This avoids any manually inserted centroid coordinates.
 
-    # Geolocation UI
-    st.markdown("#### Detect your location (optional)")
-    geo_col1, geo_col2 = st.columns([2,1])
-
-    detected = st.session_state.get("detected_location", "")
-
-    with geo_col1:
-        loc_display = st.text_input("Your Location (lat, lon)", value=detected, placeholder="Click 'Get Location' to auto-detect", key="location_input")
-
-    with geo_col2:
-        if st.button("📍 Get Location"):
-            get_geo_html = """
-            <html>
-              <body>
-                <script>
-                  function send(msg) {
-                    const pre = document.createElement('pre');
-                    pre.id = 'out';
-                    pre.innerText = JSON.stringify(msg);
-                    document.body.appendChild(pre);
-                  }
-
-                  function fail(message) {
-                    send({error: true, message: message});
-                  }
-
-                  if (navigator.geolocation) {
-                    navigator.geolocation.getCurrentPosition(
-                      function(pos) {
-                        send({lat: pos.coords.latitude, lon: pos.coords.longitude});
-                      },
-                      function(err) {
-                        fail(err.message || 'Geolocation error');
-                      },
-                      {enableHighAccuracy: true, timeout: 10000}
-                    );
-                  } else {
-                    fail('Geolocation not supported');
-                  }
-                </script>
-              </body>
-            </html>
-            """
-            try:
-                raw = components.html(get_geo_html, height=200)
-                m = re.search(r"<pre id=\"out\">(.*?)</pre>", raw, re.S)
-                if m:
-                    payload = json.loads(m.group(1))
-                    if isinstance(payload, dict) and not payload.get("error", False):
-                        coords = f"{payload['lat']}, {payload['lon']}"
-                        st.session_state["detected_location"] = coords
-                        st.experimental_rerun()
-                    else:
-                        err_msg = payload.get("message", "Unknown geolocation error")
-                        st.warning(f"Geolocation failed: {err_msg}")
-                else:
-                    st.warning("Could not read geolocation response. Please allow location permission or paste coordinates manually.")
-            except Exception as e:
-                st.error(f"Geolocation component error: {e}")
-
-    # Manual fallback
-    st.markdown("If automatic detection fails, paste coordinates in the format: lat, lon (e.g., -19.0154, 29.1549).")
-    manual_location = st.text_input("Or paste coordinates here", value="", placeholder="-19.0154, 29.1549", key="manual_loc")
-    location = st.session_state.get("detected_location", "") or (manual_location.strip() if manual_location else "")
-
-    # Show folium map if available
-    if not FOLIUM_AVAILABLE:
-        st.warning("folium or streamlit_folium not installed. To enable map display, install via: pip install folium streamlit-folium")
-    else:
-        # Decide map center and markers
-        map_center = (-19.0, 29.0)  # default center for Zimbabwe-ish
-        m = folium.Map(location=map_center, zoom_start=6, tiles="OpenStreetMap")
-
-        # If user provided manual or detected location, parse and add marker
-        def parse_coords(s):
-            try:
-                parts = [p.strip() for p in s.split(",")]
-                if len(parts) >= 2:
-                    lat = float(parts[0])
-                    lon = float(parts[1])
-                    return lat, lon
-            except Exception:
+    # ---- Reverse geocoding (lat/lon -> district) ----
+    # Note: This depends on network access. If it fails, we fall back to "Unknown".
+    @st.cache_data(show_spinner=False)
+    def reverse_geocode_district(lat, lon):
+        try:
+            from geopy.geocoders import Nominatim
+            geolocator = Nominatim(user_agent="groundwater_app_geocoder")
+            loc = geolocator.reverse((lat, lon), zoom=18, language="en")
+            if not loc:
                 return None
+            # Nominatim returns rich address fields; "county"/"state"/"city"/etc vary by place.
+            # We'll try common keys.
+            addr = loc.raw.get("address", {})
+            for key in ["county", "district", "state_district", "state", "region", "municipality"]:
+                if key in addr and addr[key]:
+                    return addr[key]
+            # fallback: sometimes district is part of the display_name
+            display_name = loc.raw.get("display_name", "")
+            return display_name.split(",")[0].strip() if display_name else None
+        except Exception:
+            return None
 
-        user_point = None
-        if location:
-            parsed = parse_coords(location)
-            if parsed:
-                user_point = parsed
-                folium.Marker(location=parsed, tooltip="Your Location", icon=folium.Icon(color="blue", icon="user")).add_to(m)
-                m.location = parsed
-                m.zoom_start = 12
+    # Real-time GPS
+    if "detected_latlon" not in st.session_state:
+        st.session_state["detected_latlon"] = None
 
-        # If district selected and centroid known, add marker and (if no user point) center map there
-        if district and district != "Select District":
-            centroid = DISTRICT_CENTROIDS.get(district)
-            if centroid:
-                folium.Marker(location=centroid, tooltip=f"District: {district}", icon=folium.Icon(color="green", icon="map-marker")).add_to(m)
-                if not user_point:
-                    m.location = centroid
-                    m.zoom_start = 10
+    st.markdown("#### Detect your location (real-time GPS)")
+    colA, colB = st.columns([2, 1])
 
-        # Render map
-        st.caption("Map: detected or manual location (blue) and selected district centroid (green)")
-        st_folium(m, width=700, height=400)
+    with colA:
+        gps = streamlit_geolocation()
+        if gps:
+            lat = gps.get("latitude")
+            lon = gps.get("longitude")
+            if lat is not None and lon is not None:
+                st.session_state["detected_latlon"] = (lat, lon)
+                st.success(f"Real-time: {lat}, {lon}")
+    with colB:
+        if st.button("↻ Re-detect"):
+            st.session_state["detected_latlon"] = None
+            st.experimental_rerun()
 
-    # ---------------- Feature inputs ----------------
+    latlon = st.session_state.get("detected_latlon", None)
+
+    # Auto-detected district from GPS (no centroids stored in code)
+    auto_district = None
+    if latlon:
+        lat, lon = latlon
+        with st.spinner("Finding your district from GPS..."):
+            auto_district = reverse_geocode_district(lat, lon)
+
+    # District UI (no manual coordinate insertion; district name comes from geocoding)
+    st.markdown("#### District (auto-detected from your GPS)")
+    if auto_district:
+        st.info(f"✅ District: **{auto_district}**")
+    else:
+        st.warning("Could not detect district automatically. Please grant location permission, or district name may not be available for your coordinates in the geocoding service.")
+
+    # =========================
+    # Feature inputs (predictors)
+    # =========================
+    st.subheader("🧩 Predictor inputs")
+
     user_inputs = {}
     if selected_features is None:
         st.error("Selected features are not loaded. Check that 'selected_features.pkl' was loaded successfully.")
     else:
-        for feature in selected_features:
-            if feature in data.columns:
-                options = sorted(data[feature].dropna().unique().tolist())
-                user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, key=f"feat_{feature}")
-            else:
-                user_inputs[feature] = st.text_input(f"🔸 {feature} (enter value)", value=default_values.get(feature, ""), key=f"feat_{feature}")
+        if data is None or data.empty:
+            st.error("Dataset not loaded. Check augmented_data.csv and column setup.")
+        else:
+            for feature in selected_features:
+                if feature in data.columns:
+                    options = sorted(data[feature].dropna().unique().tolist())
+                    user_inputs[feature] = st.selectbox(f"🔸 {feature}", options, key=f"feat_{feature}")
+                else:
+                    user_inputs[feature] = st.text_input(f"🔸 {feature} (enter value)", key=f"feat_{feature}")
 
     # ----- Prediction button -----
     if st.button("✨ Predict Potential"):
         try:
-            missing = []
-            for name in ("encoder", "scaler", "model"):
-                if globals().get(name, None) is None:
-                    missing.append(name)
-            if missing:
-                st.error(f"Required objects not loaded: {', '.join(missing)}")
+            if model is None or scaler is None or encoder is None or selected_features is None:
+                st.error("Required artifacts are not loaded. Check model/scaler/encoder/selected_features files.")
             else:
                 full_input = default_values.copy()
                 full_input.update(user_inputs)
 
-                if location and 'Location' in full_features:
-                    full_input['Location'] = location
-
-                for col in full_features:
-                    if col not in full_input:
-                        full_input[col] = default_values.get(col, "")
+                # Fill the rest of full_features
+                if data is not None and not data.empty:
+                    for col in full_features:
+                        if col not in full_input:
+                            full_input[col] = default_values.get(col, "")
 
                 input_df = pd.DataFrame([full_input])[full_features]
 
@@ -350,7 +273,6 @@ elif page == "Predict":
                 encoded_df = pd.DataFrame(encoded, columns=full_features)
 
                 selected_df = encoded_df[selected_features]
-
                 scaled = scaler.transform(selected_df)
 
                 pred = model.predict(scaled)[0]
@@ -371,6 +293,7 @@ elif page == "Predict":
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+
 # ===============================
 # MODEL INFO
 # ===============================
@@ -387,16 +310,13 @@ elif page == "Model Info":
     """)
 
     st.subheader("Selected Predictors:")
-    try:
-        if selected_features:
-            for f in selected_features:
-                st.write(f"• {f}")
-        else:
-            st.warning("Selected feature list is not available. Ensure 'selected_features.pkl' was loaded successfully.")
-    except Exception as e:
-        st.error(f"Error while displaying selected predictors: {e}")
-
+    if selected_features:
+        for f in selected_features:
+            st.write(f"• {f}")
+    else:
+        st.warning("Selected features list is not available.")
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 # ===============================
 # FEATURE GUIDE
@@ -405,25 +325,23 @@ elif page == "Feature Guide":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.title("📘 Feature Guide")
 
-    try:
-        if full_features and isinstance(data, pd.DataFrame):
-            for col in full_features:
-                st.subheader(col)
-                st.write("Possible values:")
-                if col in data.columns:
-                    try:
-                        vals = sorted(data[col].dropna().unique().tolist())
-                        st.write(vals)
-                    except Exception as e:
-                        st.write(f"Could not list values for {col}: {e}")
-                else:
-                    st.write(f"Column '{col}' not found in loaded dataset.")
-        else:
-            st.warning("Feature list or dataset not available. Ensure 'augmented_data.csv' loaded and columns were set correctly.")
-    except Exception as e:
-        st.error(f"Error while building Feature Guide: {e}")
+    if data is not None and not data.empty:
+        for col in full_features:
+            st.subheader(col)
+            if col in data.columns:
+                try:
+                    vals = sorted(data[col].dropna().unique().tolist())
+                    st.write("Possible values:")
+                    st.write(vals)
+                except Exception as e:
+                    st.write(f"Could not list values: {e}")
+            else:
+                st.write(f"Column not found: {col}")
+    else:
+        st.warning("Dataset not available.")
 
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 # ===============================
 # ABOUT
@@ -431,7 +349,6 @@ elif page == "Feature Guide":
 elif page == "About":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.title("ℹ️ About")
-
     st.write("""
     This system was engineered for:
 
@@ -442,5 +359,4 @@ elif page == "About":
 
              BY BENSON MAJAWA
     """)
-
     st.markdown("</div>", unsafe_allow_html=True)
