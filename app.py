@@ -149,6 +149,12 @@ elif page == "Predict":
     st.write("### Select values for the predictors:")
 
     # session state (safe approach; no experimental_rerun, no key= in geolocation)
+
+location = streamlit_geolocation()
+if location:
+    st.write(f"Latitude: {location['latitude']}")
+    st.write(f"Longitude: {location['longitude']}")
+
     if "detected_latlon" not in st.session_state:
         st.session_state["detected_latlon"] = None
 
