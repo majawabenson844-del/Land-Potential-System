@@ -51,7 +51,7 @@ except Exception:
 # Page Config
 # ===============================
 st.set_page_config(
-    page_title="Benson's Groundwater Potential Mapping System",
+    page_title="Muilti-criteria-gwp-mapping-system",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded",
